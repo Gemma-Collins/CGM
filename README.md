@@ -48,33 +48,48 @@ find timestamp/glucose columns by name.
 
 ## Usage
 
+The CLI has two steps: `ingest` parses export files and stores them in a
+local SQLite database (`health_data.db` by default), and `report` builds
+the HTML dashboard from whatever's currently in that database. They're
+separate so you can re-run `ingest` any time you have a new export —
+already-seen rows are skipped, so overlapping files are safe to re-import —
+without losing history from earlier runs, and so a future scheduler/live
+tracker can call `ingest` on its own on a timer while you just run `report`
+whenever you want to look.
+
 ```bash
-python -m health_aggregator.cli \
+python -m health_aggregator.cli ingest \
   --garmin-dir ./exports/garmin \
   --cronometer-csv ./exports/cronometer_servings.csv \
-  --cgm-csv ./exports/libreview.csv \
-  --output report.html
+  --cgm-csv ./exports/libreview.csv
+
+python -m health_aggregator.cli report --output report.html
 ```
 
-Any of the three sources can be omitted. Open `report.html` in a browser —
-the chart and data are fully embedded, so it works offline and can be
-shared as a single file.
+Any of the three sources can be omitted from an `ingest` call — run it
+again later with just the new file for whichever source has fresh data.
+Open `report.html` in a browser — the chart and data are fully embedded,
+so it works offline and can be shared as a single file.
 
 Useful flags:
 
-- `--freq 5min` — resampling interval for aligning all sources (default 5
-  minutes)
-- `--low` / `--high` — target glucose range in mg/dL for the time-in-range
-  calculation (defaults 70/180)
-- `--cgm-format {auto,libreview,nightscout,generic}` — force the CGM CSV
-  format instead of auto-detecting
+- `--db path/to/file.db` (both commands) — where the persistent history
+  lives (default `health_data.db` in the current directory)
+- `ingest --cgm-format {auto,libreview,nightscout,generic}` — force the CGM
+  CSV format instead of auto-detecting
+- `report --start` / `--end` — only include data in that date/time range
+- `report --freq 5min` — resampling interval for aligning all sources
+- `report --low` / `--high` — target glucose range in mg/dL for the
+  time-in-range calculation (defaults 70/180)
 
 ## How it works
 
 Each source is parsed into a small pandas schema (see `models.py`):
 glucose readings, carb entries, heart-rate samples, and activity summaries.
-`merge.py` resamples all of them onto a common time grid (glucose/HR
-averaged per bucket, carbs summed per bucket) and flags which buckets fall
+`ingest` upserts those into SQLite tables (`db.py`) keyed so re-importing
+the same reading is a no-op. `report` loads everything (or a date range)
+back out, and `merge.py` resamples it onto a common time grid (glucose/HR
+averaged per bucket, carbs summed per bucket), flagging which buckets fall
 inside a Garmin activity. `report.py` renders that merged timeline as a
 Plotly chart plus a per-day summary table.
 
