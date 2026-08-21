@@ -85,6 +85,37 @@ def test_cli_poll_failure_records_heartbeat_and_exits_nonzero(tmp_path, monkeypa
     assert "401 unauthorized" in status.output
 
 
+def test_cli_poll_cgm_success_records_heartbeat(tmp_path, monkeypatch):
+    db_path = tmp_path / "health.db"
+    monkeypatch.setattr(
+        "health_aggregator.cli.nightscout_live.poll_once",
+        lambda conn, base_url, count: {"glucose": 4},
+    )
+    runner = CliRunner()
+    result = runner.invoke(main, ["poll-cgm", "--db", str(db_path)])
+    assert result.exit_code == 0, result.output
+    assert "glucose +4" in result.output
+
+    status = runner.invoke(main, ["status", "--db", str(db_path)])
+    assert "nightscout_live: success" in status.output
+    assert "4 row(s) added" in status.output
+
+
+def test_cli_poll_cgm_failure_records_heartbeat_and_exits_nonzero(tmp_path, monkeypatch):
+    db_path = tmp_path / "health.db"
+
+    def _boom(conn, base_url, count):
+        raise RuntimeError("NIGHTSCOUT_URL is required")
+
+    monkeypatch.setattr("health_aggregator.cli.nightscout_live.poll_once", _boom)
+    runner = CliRunner()
+    result = runner.invoke(main, ["poll-cgm", "--db", str(db_path)])
+    assert result.exit_code != 0
+
+    status = runner.invoke(main, ["status", "--db", str(db_path)])
+    assert "nightscout_live: error" in status.output
+
+
 def test_cli_ingest_twice_does_not_duplicate(tmp_path):
     db_path = tmp_path / "health.db"
     runner = CliRunner()

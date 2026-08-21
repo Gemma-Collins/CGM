@@ -141,6 +141,13 @@ def load_activities(conn: sqlite3.Connection, start=None, end=None) -> pd.DataFr
     return ensure_schema(df, ACTIVITY_COLUMNS) if not df.empty else empty_frame(ACTIVITY_COLUMNS)
 
 
+def latest_timestamp(conn: sqlite3.Connection, table: str, column: str, source: str):
+    """Most recent `column` value stored for one source, or None if there's
+    none yet - lets a live poller ask for "only what's new since last time"."""
+    row = conn.execute(f'SELECT MAX("{column}") FROM {table} WHERE source = ?', (source,)).fetchone()
+    return pd.Timestamp(row[0]) if row and row[0] is not None else None
+
+
 def record_poll(
     conn: sqlite3.Connection,
     source: str,

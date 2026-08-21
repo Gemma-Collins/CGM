@@ -10,10 +10,10 @@ time-in-range table.
 - **Glucose (CGM)** — FreeStyle Libre 2 via LibreView, or xDrip+/MiaoMiao via
   a Nightscout CSV export
 
-Garmin and Cronometer both work from files you export yourself; Cronometer
-always will, since it has no public API. Garmin also has a live path (see
-"Live Garmin tracking" below) that polls Garmin's servers directly instead
-of you exporting a `.fit` file each time.
+Cronometer always works from a file export, since it has no public API.
+Garmin and CGM (Nightscout) both also have a live path (see "Live tracking"
+below) that polls the source directly instead of you exporting a file each
+time.
 
 ## Setup
 
@@ -84,7 +84,14 @@ Useful flags:
 - `report --low` / `--high` — target glucose range in mg/dL for the
   time-in-range calculation (defaults 70/180)
 
-## Live Garmin tracking
+## Live tracking
+
+Both live sources write into the same database the file importer uses, so
+`report` picks up whatever they've fetched automatically — there's no
+separate "live view"; it's the same dashboard, just fed automatically
+instead of by hand.
+
+### Garmin
 
 Instead of exporting `.fit` files by hand, `poll`/`schedule` log into
 Garmin's cloud (the same account your Garmin Connect app already uses) and
@@ -120,16 +127,43 @@ The first login caches a session token to `~/.garmin_tokens` (override with
 `--tokenstore`), so later polls don't need your password again until that
 token expires.
 
-**Check whether it's actually running**, and how much data has accumulated:
+### CGM (Nightscout, for xDrip+/MiaoMiao)
+
+If xDrip+ uploads to a Nightscout site, `poll-cgm`/`schedule-cgm` pull
+glucose entries from it directly via Nightscout's own REST API. Unlike
+Garmin, this is a documented, official API on a server you control, so
+there's no reverse-engineering and no risk of Garmin-style breakage.
+
+Set the site URL and either a read-only access token (preferred) or the
+classic API secret, as environment variables:
+
+```bash
+export NIGHTSCOUT_URL="https://your-site.example.com"
+export NIGHTSCOUT_TOKEN="your-read-only-token"
+# or, if your site still uses the older scheme:
+# export NIGHTSCOUT_API_SECRET="your-api-secret"
+```
+
+```bash
+python -m health_aggregator.cli poll-cgm       # one-off pull
+python -m health_aggregator.cli schedule-cgm    # runs forever, 5-10 min jittered by default
+```
+
+CGM readings arrive every 1-5 minutes, much faster than Garmin's sync
+cadence, so `schedule-cgm` defaults to a tighter interval than Garmin's
+`schedule` — and since it's your own server rather than an unofficial
+client, there's no need to be as conservative about polling frequency.
+
+### Checking it's running
 
 ```bash
 python -m health_aggregator.cli status
 ```
 
-This shows the most recent poll's outcome (success/error, how long ago,
-rows added, and the error message if it failed) plus a row count for each
-data type currently stored — the heartbeat to glance at instead of reading
-logs.
+This shows each source's most recent poll outcome (success/error, how long
+ago, rows added, and the error message if it failed) plus a row count for
+each data type currently stored — the heartbeat to glance at instead of
+reading logs.
 
 ## How it works
 

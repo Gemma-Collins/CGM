@@ -54,6 +54,20 @@ def test_reopening_db_persists_data(tmp_path):
     assert len(dbmod.load_glucose(reopened)) == 4
 
 
+def test_latest_timestamp_returns_none_when_no_rows_for_source(tmp_path):
+    conn = dbmod.connect(str(tmp_path / "health.db"))
+    assert dbmod.latest_timestamp(conn, "glucose_readings", "timestamp", "nightscout_live") is None
+
+
+def test_latest_timestamp_returns_max_for_that_source_only(tmp_path):
+    conn = dbmod.connect(str(tmp_path / "health.db"))
+    dbmod.upsert_glucose(conn, _glucose_df())  # source is "libreview"
+    assert dbmod.latest_timestamp(conn, "glucose_readings", "timestamp", "nightscout_live") is None
+    assert dbmod.latest_timestamp(conn, "glucose_readings", "timestamp", "libreview") == pd.Timestamp(
+        "2026-08-10 08:15:00"
+    )
+
+
 def test_record_and_load_poll_log(tmp_path):
     conn = dbmod.connect(str(tmp_path / "health.db"))
     started = pd.Timestamp("2026-08-10 08:00:00")

@@ -16,7 +16,7 @@ import pandas as pd
 from health_aggregator import db as dbmod
 from health_aggregator import scheduler
 from health_aggregator.importers import cgm, cronometer, garmin
-from health_aggregator.live import garmin_live
+from health_aggregator.live import garmin_live, nightscout_live
 from health_aggregator.merge import daily_summary, merge_all
 from health_aggregator.report import build_report
 
@@ -144,6 +144,61 @@ def schedule(db_path, tokenstore, days_back, min_minutes, max_minutes):
         try:
             counts = _run_garmin_live_poll(db_path, tokenstore, days_back)
             click.echo(f"{pd.Timestamp.now()}: poll ok, +{sum(counts.values())} rows")
+        except Exception as exc:
+            click.echo(f"{pd.Timestamp.now()}: poll FAILED: {exc}")
+
+    click.echo(f"polling every {min_minutes}-{max_minutes} min (jittered); Ctrl+C to stop")
+    scheduler.run_forever(do_poll, min_minutes * 60, max_minutes * 60)
+
+
+def _run_nightscout_live_poll(db_path: str, nightscout_url: str | None, count: int) -> dict:
+    """One live-Nightscout poll: fetch, upsert, and record a poll_log heartbeat row."""
+    conn = dbmod.connect(db_path)
+    started = pd.Timestamp.now()
+    try:
+        counts = nightscout_live.poll_once(conn, base_url=nightscout_url, count=count)
+        dbmod.record_poll(
+            conn, "nightscout_live", started, pd.Timestamp.now(), "success",
+            rows_added=sum(counts.values()),
+        )
+        return counts
+    except Exception as exc:
+        dbmod.record_poll(
+            conn, "nightscout_live", started, pd.Timestamp.now(), "error",
+            rows_added=0, error_message=str(exc),
+        )
+        raise
+    finally:
+        conn.close()
+
+
+@main.command("poll-cgm")
+@_DB_OPTION
+@click.option("--nightscout-url", default=None, help="Nightscout site base URL, e.g. https://mysite.up.railway.app. Falls back to the NIGHTSCOUT_URL env var.")
+@click.option("--count", default=nightscout_live.DEFAULT_COUNT, show_default=True, help="Max entries to fetch per poll (only entries newer than what's already stored are added).")
+def poll_cgm(db_path, nightscout_url, count):
+    """One-off live CGM fetch from a Nightscout site (e.g. xDrip+/MiaoMiao
+    uploading there). Reads auth from NIGHTSCOUT_TOKEN or NIGHTSCOUT_API_SECRET."""
+    try:
+        counts = _run_nightscout_live_poll(db_path, nightscout_url, count)
+    except Exception as exc:
+        raise click.ClickException(f"nightscout live poll failed: {exc}")
+    click.echo(f"nightscout_live: glucose +{counts['glucose']}")
+
+
+@main.command("schedule-cgm")
+@_DB_OPTION
+@click.option("--nightscout-url", default=None, help="Nightscout site base URL. Falls back to the NIGHTSCOUT_URL env var.")
+@click.option("--count", default=nightscout_live.DEFAULT_COUNT, show_default=True, help="Max entries to fetch per poll.")
+@click.option("--min-minutes", default=5.0, show_default=True, help="Minimum minutes between polls (CGM readings arrive every 1-5 min, so this can run tighter than the Garmin schedule).")
+@click.option("--max-minutes", default=10.0, show_default=True, help="Maximum minutes between polls (jittered).")
+def schedule_cgm(db_path, nightscout_url, count, min_minutes, max_minutes):
+    """Run the live Nightscout poll forever, on a jittered interval, until you stop it (Ctrl+C)."""
+
+    def do_poll():
+        try:
+            counts = _run_nightscout_live_poll(db_path, nightscout_url, count)
+            click.echo(f"{pd.Timestamp.now()}: poll ok, +{counts['glucose']} rows")
         except Exception as exc:
             click.echo(f"{pd.Timestamp.now()}: poll FAILED: {exc}")
 
