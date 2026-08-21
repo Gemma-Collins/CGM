@@ -72,6 +72,19 @@ def build_figure(merged: pd.DataFrame, low_mg_dl: float = 70, high_mg_dl: float 
             )
         )
 
+    if "insulin_units" in merged:
+        nonzero = merged[merged["insulin_units"] > 0]
+        fig.add_trace(
+            go.Bar(
+                x=nonzero["timestamp"],
+                y=nonzero["insulin_units"],
+                name="Insulin (u)",
+                marker_color="#17becf",
+                yaxis="y4",
+                width=3 * 60 * 1000,
+            )
+        )
+
     for start, end, label in _activity_spans(merged):
         fig.add_vrect(
             x0=start,
@@ -84,11 +97,12 @@ def build_figure(merged: pd.DataFrame, low_mg_dl: float = 70, high_mg_dl: float 
         )
 
     fig.update_layout(
-        title="Glucose, carbs, and heart rate",
-        xaxis=dict(title="Time", domain=[0, 0.92]),
+        title="Glucose, carbs, insulin, and heart rate",
+        xaxis=dict(title="Time", domain=[0, 0.82]),
         yaxis=dict(title="mg/dL", side="left"),
         yaxis2=dict(title="bpm", overlaying="y", side="right"),
-        yaxis3=dict(title="carbs (g)", overlaying="y", side="right", position=1.0, showgrid=False),
+        yaxis3=dict(title="carbs (g)", overlaying="y", side="right", anchor="free", position=0.91, showgrid=False),
+        yaxis4=dict(title="insulin (u)", overlaying="y", side="right", anchor="free", position=1.0, showgrid=False),
         legend=dict(orientation="h", y=1.08),
         height=600,
         barmode="overlay",
@@ -105,6 +119,7 @@ def _daily_table_html(daily: pd.DataFrame) -> str:
             "avg_glucose_mg_dl": "Avg glucose (mg/dL)",
             "pct_time_in_range": "Time in range (%)",
             "total_carbs_g": "Total carbs (g)",
+            "total_insulin_units": "Total insulin (u)",
             "active_minutes": "Active minutes",
         }
     ).round(1)

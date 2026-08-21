@@ -1,14 +1,19 @@
 # Health Data Aggregator
 
-Merges three data sources into one HTML dashboard: a glucose curve overlaid
-with carb intake and heart rate, with activity periods shaded and a daily
-time-in-range table.
+Merges four data sources into one HTML dashboard: a glucose curve overlaid
+with carb intake, insulin doses, and heart rate, with activity periods
+shaded and a daily time-in-range table.
 
 - **Activities & heart rate** — Garmin vivoactive, via `.fit` files exported
   from Garmin Connect
 - **Carbs** — Cronometer, via its CSV export
 - **Glucose (CGM)** — FreeStyle Libre 2 via LibreView, or xDrip+/MiaoMiao via
   a Nightscout CSV export
+- **Insulin doses** — from Nightscout's treatment log (live only, via
+  `poll-cgm`/`schedule-cgm` alongside glucose — see "Live tracking" below).
+  Only picks up entries with a discrete dose amount (bolus-style), however
+  they're logged there; temp-basal rate/duration entries (pump-specific)
+  aren't parsed. There's no file-import path for this yet.
 
 Cronometer always works from a file export, since it has no public API.
 Garmin and CGM (Nightscout) both also have a live path (see "Live tracking"
@@ -129,10 +134,11 @@ token expires.
 
 ### CGM (Nightscout, for xDrip+/MiaoMiao)
 
-If xDrip+ uploads to a Nightscout site, `poll-cgm`/`schedule-cgm` pull
-glucose entries from it directly via Nightscout's own REST API. Unlike
-Garmin, this is a documented, official API on a server you control, so
-there's no reverse-engineering and no risk of Garmin-style breakage.
+If xDrip+ uploads to a Nightscout site, `poll-cgm`/`schedule-cgm` pull both
+glucose entries and insulin doses from it directly via Nightscout's own
+REST API (entries + treatments endpoints). Unlike Garmin, this is a
+documented, official API on a server you control, so there's no
+reverse-engineering and no risk of Garmin-style breakage.
 
 Set the site URL and either a read-only access token (preferred) or the
 classic API secret, as environment variables:

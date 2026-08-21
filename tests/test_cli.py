@@ -89,16 +89,17 @@ def test_cli_poll_cgm_success_records_heartbeat(tmp_path, monkeypatch):
     db_path = tmp_path / "health.db"
     monkeypatch.setattr(
         "health_aggregator.cli.nightscout_live.poll_once",
-        lambda conn, base_url, count: {"glucose": 4},
+        lambda conn, base_url, count: {"glucose": 4, "insulin": 2},
     )
     runner = CliRunner()
     result = runner.invoke(main, ["poll-cgm", "--db", str(db_path)])
     assert result.exit_code == 0, result.output
     assert "glucose +4" in result.output
+    assert "insulin +2" in result.output
 
     status = runner.invoke(main, ["status", "--db", str(db_path)])
     assert "nightscout_live: success" in status.output
-    assert "4 row(s) added" in status.output
+    assert "6 row(s) added" in status.output
 
 
 def test_cli_poll_cgm_failure_records_heartbeat_and_exits_nonzero(tmp_path, monkeypatch):

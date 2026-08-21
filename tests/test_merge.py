@@ -1,7 +1,14 @@
 import pandas as pd
 
 from health_aggregator.merge import daily_summary, merge_all
-from health_aggregator.models import ACTIVITY_COLUMNS, CARB_COLUMNS, GLUCOSE_COLUMNS, HEART_RATE_COLUMNS, ensure_schema
+from health_aggregator.models import (
+    ACTIVITY_COLUMNS,
+    CARB_COLUMNS,
+    GLUCOSE_COLUMNS,
+    HEART_RATE_COLUMNS,
+    INSULIN_COLUMNS,
+    ensure_schema,
+)
 
 
 def _glucose_df():
@@ -67,6 +74,20 @@ def _activity_df():
     )
 
 
+def _insulin_df():
+    return ensure_schema(
+        pd.DataFrame(
+            {
+                "timestamp": pd.to_datetime(["2026-08-10 08:01"]),
+                "units": [4.5],
+                "dose_type": ["Meal Bolus"],
+                "source": ["nightscout_live"],
+            }
+        ),
+        INSULIN_COLUMNS,
+    )
+
+
 def test_merge_all_aligns_sources_on_5_minute_grid():
     merged = merge_all(_glucose_df(), _carb_df(), _hr_df(), _activity_df(), freq="5min")
     assert list(merged["timestamp"]) == list(
@@ -99,3 +120,23 @@ def test_daily_summary_computes_time_in_range():
     assert row["total_carbs_g"] == 30.0
     # 90 and 100 in range, 150 and 160 out -> 50%
     assert row["pct_time_in_range"] == 50.0
+
+
+def test_merge_all_includes_insulin_when_provided():
+    merged = merge_all(_glucose_df(), _carb_df(), _hr_df(), _activity_df(), _insulin_df(), freq="5min")
+    assert "insulin_units" in merged.columns
+    # dose at 08:01 falls in the 08:00 bucket
+    assert merged.loc[merged["timestamp"] == "2026-08-10 08:00", "insulin_units"].iloc[0] == 4.5
+    # no dose logged in the other buckets -> 0, not NaN
+    assert merged.loc[merged["timestamp"] == "2026-08-10 08:05", "insulin_units"].iloc[0] == 0.0
+
+
+def test_merge_all_without_insulin_omits_the_column():
+    merged = merge_all(_glucose_df(), _carb_df(), _hr_df(), _activity_df(), freq="5min")
+    assert "insulin_units" not in merged.columns
+
+
+def test_daily_summary_totals_insulin_units():
+    merged = merge_all(_glucose_df(), _carb_df(), _hr_df(), _activity_df(), _insulin_df(), freq="5min")
+    daily = daily_summary(merged)
+    assert daily.iloc[0]["total_insulin_units"] == 4.5

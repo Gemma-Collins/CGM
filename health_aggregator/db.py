@@ -15,6 +15,7 @@ from health_aggregator.models import (
     CARB_COLUMNS,
     GLUCOSE_COLUMNS,
     HEART_RATE_COLUMNS,
+    INSULIN_COLUMNS,
     empty_frame,
     ensure_schema,
 )
@@ -52,6 +53,13 @@ CREATE TABLE IF NOT EXISTS activities (
     steps REAL,
     source TEXT NOT NULL,
     UNIQUE("start", source)
+);
+CREATE TABLE IF NOT EXISTS insulin_doses (
+    timestamp TEXT NOT NULL,
+    units REAL NOT NULL,
+    dose_type TEXT,
+    source TEXT NOT NULL,
+    UNIQUE(timestamp, dose_type, source)
 );
 CREATE TABLE IF NOT EXISTS poll_log (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -117,6 +125,11 @@ def upsert_activities(conn: sqlite3.Connection, df: pd.DataFrame) -> int:
     return _upsert(conn, "activities", df, list(ACTIVITY_COLUMNS))
 
 
+def upsert_insulin(conn: sqlite3.Connection, df: pd.DataFrame) -> int:
+    df = ensure_schema(df, INSULIN_COLUMNS).assign(timestamp=lambda d: d["timestamp"].astype(str))
+    return _upsert(conn, "insulin_doses", df, list(INSULIN_COLUMNS))
+
+
 def load_glucose(conn: sqlite3.Connection, start=None, end=None) -> pd.DataFrame:
     where, params = _where_range("timestamp", start, end)
     df = pd.read_sql_query(f"SELECT * FROM glucose_readings{where}", conn, params=params)
@@ -139,6 +152,12 @@ def load_activities(conn: sqlite3.Connection, start=None, end=None) -> pd.DataFr
     where, params = _where_range("start", start, end)
     df = pd.read_sql_query(f"SELECT * FROM activities{where}", conn, params=params)
     return ensure_schema(df, ACTIVITY_COLUMNS) if not df.empty else empty_frame(ACTIVITY_COLUMNS)
+
+
+def load_insulin(conn: sqlite3.Connection, start=None, end=None) -> pd.DataFrame:
+    where, params = _where_range("timestamp", start, end)
+    df = pd.read_sql_query(f"SELECT * FROM insulin_doses{where}", conn, params=params)
+    return ensure_schema(df, INSULIN_COLUMNS) if not df.empty else empty_frame(INSULIN_COLUMNS)
 
 
 def latest_timestamp(conn: sqlite3.Connection, table: str, column: str, source: str):

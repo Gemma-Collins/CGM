@@ -1,7 +1,7 @@
 import pandas as pd
 
 from health_aggregator import db as dbmod
-from tests.test_merge import _activity_df, _carb_df, _glucose_df, _hr_df
+from tests.test_merge import _activity_df, _carb_df, _glucose_df, _hr_df, _insulin_df
 
 
 def test_upsert_and_load_glucose(tmp_path):
@@ -29,12 +29,13 @@ def test_load_respects_date_range(tmp_path):
     assert len(subset) == 2
 
 
-def test_all_four_tables_roundtrip(tmp_path):
+def test_all_five_tables_roundtrip(tmp_path):
     conn = dbmod.connect(str(tmp_path / "health.db"))
     dbmod.upsert_glucose(conn, _glucose_df())
     dbmod.upsert_carbs(conn, _carb_df())
     dbmod.upsert_heart_rate(conn, _hr_df())
     dbmod.upsert_activities(conn, _activity_df())
+    dbmod.upsert_insulin(conn, _insulin_df())
 
     assert len(dbmod.load_glucose(conn)) == 4
     assert len(dbmod.load_carbs(conn)) == 1
@@ -42,6 +43,17 @@ def test_all_four_tables_roundtrip(tmp_path):
     activities = dbmod.load_activities(conn)
     assert len(activities) == 1
     assert activities.iloc[0]["activity_type"] == "running"
+    insulin = dbmod.load_insulin(conn)
+    assert len(insulin) == 1
+    assert insulin.iloc[0]["units"] == 4.5
+
+
+def test_upsert_insulin_is_idempotent(tmp_path):
+    conn = dbmod.connect(str(tmp_path / "health.db"))
+    dbmod.upsert_insulin(conn, _insulin_df())
+    second = dbmod.upsert_insulin(conn, _insulin_df())
+    assert second == 0
+    assert len(dbmod.load_insulin(conn)) == 1
 
 
 def test_reopening_db_persists_data(tmp_path):

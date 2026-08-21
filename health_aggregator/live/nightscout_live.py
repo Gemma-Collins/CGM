@@ -16,7 +16,7 @@ import pandas as pd
 import requests
 
 from health_aggregator import db as dbmod
-from health_aggregator.models import GLUCOSE_COLUMNS, empty_frame, ensure_schema
+from health_aggregator.models import GLUCOSE_COLUMNS, INSULIN_COLUMNS, empty_frame, ensure_schema
 
 DEFAULT_COUNT = 1000
 
@@ -40,6 +40,34 @@ def _entries_payload_to_frame(payload: list) -> pd.DataFrame:
     df = pd.DataFrame(rows)
     df["source"] = "nightscout_live"
     return ensure_schema(df, GLUCOSE_COLUMNS)
+
+
+def _treatments_payload_to_frame(payload: list) -> pd.DataFrame:
+    """Normalize a Nightscout `/api/v1/treatments.json` response into insulin
+    doses. Only entries with a non-null `insulin` field are kept - this
+    covers bolus-style doses (Meal Bolus, Correction Bolus, etc.) however
+    they're logged (including manually, e.g. from a smart pen's app that
+    syncs to Nightscout). Temp-basal rate/duration entries (pump-specific,
+    no discrete `insulin` field) aren't handled here."""
+    raw = pd.DataFrame(payload or [])
+    if raw.empty or "insulin" not in raw.columns or "created_at" not in raw.columns:
+        return empty_frame(INSULIN_COLUMNS)
+    raw = raw.dropna(subset=["insulin", "created_at"])
+    if raw.empty:
+        return empty_frame(INSULIN_COLUMNS)
+
+    df = pd.DataFrame(
+        {
+            "timestamp": pd.to_datetime(raw["created_at"], errors="coerce", utc=True).dt.tz_localize(None),
+            "units": pd.to_numeric(raw["insulin"], errors="coerce"),
+            "dose_type": raw["eventType"] if "eventType" in raw.columns else "insulin",
+        }
+    )
+    df = df.dropna(subset=["timestamp", "units"])
+    if df.empty:
+        return empty_frame(INSULIN_COLUMNS)
+    df["source"] = "nightscout_live"
+    return ensure_schema(df, INSULIN_COLUMNS)
 
 
 def _auth_params_and_headers(token: str | None, api_secret: str | None) -> tuple:
@@ -73,6 +101,24 @@ def fetch_entries(
     return response.json()
 
 
+def fetch_treatments(
+    base_url: str,
+    token: str | None = None,
+    api_secret: str | None = None,
+    since: pd.Timestamp | None = None,
+    count: int = DEFAULT_COUNT,
+) -> list:
+    auth_params, headers = _auth_params_and_headers(token, api_secret)
+    params = {"count": count, **auth_params}
+    if since is not None:
+        params["find[created_at][$gte]"] = pd.Timestamp(since).isoformat()
+
+    url = base_url.rstrip("/") + "/api/v1/treatments.json"
+    response = requests.get(url, params=params, headers=headers, timeout=30)
+    response.raise_for_status()
+    return response.json()
+
+
 def poll_once(
     conn,
     base_url: str | None = None,
@@ -80,15 +126,23 @@ def poll_once(
     api_secret: str | None = None,
     count: int = DEFAULT_COUNT,
 ) -> dict:
-    """Fetch glucose entries newer than whatever's already stored for this
-    source, and upsert them. Returns {"glucose": n} new rows."""
+    """Fetch glucose entries and insulin doses newer than whatever's already
+    stored for this source, and upsert them. Returns {"glucose": n, "insulin": m}."""
     base_url = base_url or os.environ.get("NIGHTSCOUT_URL")
     token = token or os.environ.get("NIGHTSCOUT_TOKEN")
     api_secret = api_secret or os.environ.get("NIGHTSCOUT_API_SECRET")
     if not base_url:
         raise ValueError("NIGHTSCOUT_URL is required (env var or --nightscout-url)")
 
-    since = dbmod.latest_timestamp(conn, "glucose_readings", "timestamp", "nightscout_live")
-    payload = fetch_entries(base_url, token=token, api_secret=api_secret, since=since, count=count)
-    glucose_df = _entries_payload_to_frame(payload)
-    return {"glucose": dbmod.upsert_glucose(conn, glucose_df)}
+    glucose_since = dbmod.latest_timestamp(conn, "glucose_readings", "timestamp", "nightscout_live")
+    entries_payload = fetch_entries(base_url, token=token, api_secret=api_secret, since=glucose_since, count=count)
+    glucose_df = _entries_payload_to_frame(entries_payload)
+
+    insulin_since = dbmod.latest_timestamp(conn, "insulin_doses", "timestamp", "nightscout_live")
+    treatments_payload = fetch_treatments(base_url, token=token, api_secret=api_secret, since=insulin_since, count=count)
+    insulin_df = _treatments_payload_to_frame(treatments_payload)
+
+    return {
+        "glucose": dbmod.upsert_glucose(conn, glucose_df),
+        "insulin": dbmod.upsert_insulin(conn, insulin_df),
+    }

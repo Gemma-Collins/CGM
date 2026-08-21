@@ -85,12 +85,13 @@ def report(db_path, start, end, freq, low_mg_dl, high_mg_dl, output_path):
     carb_df = dbmod.load_carbs(conn, start, end)
     hr_df = dbmod.load_heart_rate(conn, start, end)
     activity_df = dbmod.load_activities(conn, start, end)
+    insulin_df = dbmod.load_insulin(conn, start, end)
     conn.close()
 
-    if glucose_df.empty and carb_df.empty and hr_df.empty:
+    if glucose_df.empty and carb_df.empty and hr_df.empty and insulin_df.empty:
         raise click.UsageError(f"no data found in {db_path} for that range - run 'ingest' first")
 
-    merged = merge_all(glucose_df, carb_df, hr_df, activity_df, freq=freq)
+    merged = merge_all(glucose_df, carb_df, hr_df, activity_df, insulin_df, freq=freq)
     daily = daily_summary(merged, low_mg_dl=low_mg_dl, high_mg_dl=high_mg_dl)
     build_report(merged, daily, output_path, low_mg_dl=low_mg_dl, high_mg_dl=high_mg_dl)
     click.echo(f"wrote {output_path} ({len(merged)} timeline rows, {len(daily)} days)")
@@ -183,7 +184,7 @@ def poll_cgm(db_path, nightscout_url, count):
         counts = _run_nightscout_live_poll(db_path, nightscout_url, count)
     except Exception as exc:
         raise click.ClickException(f"nightscout live poll failed: {exc}")
-    click.echo(f"nightscout_live: glucose +{counts['glucose']}")
+    click.echo(f"nightscout_live: glucose +{counts['glucose']}, insulin +{counts['insulin']}")
 
 
 @main.command("schedule-cgm")
@@ -198,7 +199,7 @@ def schedule_cgm(db_path, nightscout_url, count, min_minutes, max_minutes):
     def do_poll():
         try:
             counts = _run_nightscout_live_poll(db_path, nightscout_url, count)
-            click.echo(f"{pd.Timestamp.now()}: poll ok, +{counts['glucose']} rows")
+            click.echo(f"{pd.Timestamp.now()}: poll ok, glucose +{counts['glucose']}, insulin +{counts['insulin']}")
         except Exception as exc:
             click.echo(f"{pd.Timestamp.now()}: poll FAILED: {exc}")
 
@@ -231,6 +232,7 @@ def status(db_path):
     click.echo(f"  carbs: {len(dbmod.load_carbs(conn))}")
     click.echo(f"  heart rate: {len(dbmod.load_heart_rate(conn))}")
     click.echo(f"  activities: {len(dbmod.load_activities(conn))}")
+    click.echo(f"  insulin doses: {len(dbmod.load_insulin(conn))}")
     conn.close()
 
 

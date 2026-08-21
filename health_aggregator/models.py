@@ -41,6 +41,13 @@ ACTIVITY_COLUMNS = {
     "source": "object",  # "garmin_fit"
 }
 
+INSULIN_COLUMNS = {
+    "timestamp": "datetime64[ns]",
+    "units": "float64",
+    "dose_type": "object",  # Nightscout eventType, e.g. "Correction Bolus", "Meal Bolus"
+    "source": "object",  # "nightscout_live"
+}
+
 
 def empty_frame(columns: dict) -> pd.DataFrame:
     """Build an empty, correctly-typed DataFrame for one of the schemas above."""
