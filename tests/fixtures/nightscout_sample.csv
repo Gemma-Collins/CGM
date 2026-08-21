@@ -1,0 +1,6 @@
+dateString,sgv,direction,type,device
+2026-08-10T07:00:00.000Z,90,Flat,sgv,xDrip-DexcomG6
+2026-08-10T07:05:00.000Z,93,Flat,sgv,xDrip-DexcomG6
+2026-08-10T07:10:00.000Z,97,FortyFiveUp,sgv,xDrip-DexcomG6
+2026-08-10T07:15:00.000Z,105,SingleUp,sgv,xDrip-DexcomG6
+2026-08-10T07:20:00.000Z,118,SingleUp,sgv,xDrip-DexcomG6
