@@ -45,6 +45,46 @@ def test_cli_report_fails_without_prior_ingest(tmp_path):
     assert result.exit_code != 0
 
 
+def test_cli_status_with_no_polls_and_no_data(tmp_path):
+    runner = CliRunner()
+    result = runner.invoke(main, ["status", "--db", str(tmp_path / "empty.db")])
+    assert result.exit_code == 0
+    assert "no polls recorded yet" in result.output
+    assert "glucose: 0" in result.output
+
+
+def test_cli_poll_success_records_heartbeat(tmp_path, monkeypatch):
+    db_path = tmp_path / "health.db"
+    monkeypatch.setattr(
+        "health_aggregator.cli.garmin_live.poll_once",
+        lambda conn, tokenstore, days_back: {"heart_rate": 5, "activities": 1},
+    )
+    runner = CliRunner()
+    result = runner.invoke(main, ["poll", "--db", str(db_path)])
+    assert result.exit_code == 0, result.output
+    assert "heart rate +5" in result.output
+
+    status = runner.invoke(main, ["status", "--db", str(db_path)])
+    assert "garmin_live: success" in status.output
+    assert "6 row(s) added" in status.output
+
+
+def test_cli_poll_failure_records_heartbeat_and_exits_nonzero(tmp_path, monkeypatch):
+    db_path = tmp_path / "health.db"
+
+    def _boom(conn, tokenstore, days_back):
+        raise RuntimeError("401 unauthorized")
+
+    monkeypatch.setattr("health_aggregator.cli.garmin_live.poll_once", _boom)
+    runner = CliRunner()
+    result = runner.invoke(main, ["poll", "--db", str(db_path)])
+    assert result.exit_code != 0
+
+    status = runner.invoke(main, ["status", "--db", str(db_path)])
+    assert "garmin_live: error" in status.output
+    assert "401 unauthorized" in status.output
+
+
 def test_cli_ingest_twice_does_not_duplicate(tmp_path):
     db_path = tmp_path / "health.db"
     runner = CliRunner()

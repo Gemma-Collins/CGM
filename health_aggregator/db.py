@@ -53,6 +53,15 @@ CREATE TABLE IF NOT EXISTS activities (
     source TEXT NOT NULL,
     UNIQUE("start", source)
 );
+CREATE TABLE IF NOT EXISTS poll_log (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    source TEXT NOT NULL,
+    started_at TEXT NOT NULL,
+    finished_at TEXT NOT NULL,
+    status TEXT NOT NULL,
+    rows_added INTEGER,
+    error_message TEXT
+);
 """
 
 
@@ -130,3 +139,33 @@ def load_activities(conn: sqlite3.Connection, start=None, end=None) -> pd.DataFr
     where, params = _where_range("start", start, end)
     df = pd.read_sql_query(f"SELECT * FROM activities{where}", conn, params=params)
     return ensure_schema(df, ACTIVITY_COLUMNS) if not df.empty else empty_frame(ACTIVITY_COLUMNS)
+
+
+def record_poll(
+    conn: sqlite3.Connection,
+    source: str,
+    started_at: pd.Timestamp,
+    finished_at: pd.Timestamp,
+    status: str,
+    rows_added: int | None = None,
+    error_message: str | None = None,
+) -> None:
+    """Log one poll attempt (the heartbeat trail a `status` command reads)."""
+    conn.execute(
+        "INSERT INTO poll_log (source, started_at, finished_at, status, rows_added, error_message) "
+        "VALUES (?, ?, ?, ?, ?, ?)",
+        (source, str(started_at), str(finished_at), status, rows_added, error_message),
+    )
+    conn.commit()
+
+
+def last_polls(conn: sqlite3.Connection, limit_per_source: int = 1) -> pd.DataFrame:
+    """Most recent poll_log row(s) per source, newest first."""
+    df = pd.read_sql_query(
+        "SELECT * FROM poll_log ORDER BY source, id DESC", conn
+    )
+    if df.empty:
+        return df
+    return df.groupby("source", group_keys=False).head(limit_per_source).sort_values(
+        "started_at", ascending=False
+    ).reset_index(drop=True)

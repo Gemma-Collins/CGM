@@ -1,3 +1,5 @@
+import pandas as pd
+
 from health_aggregator import db as dbmod
 from tests.test_merge import _activity_df, _carb_df, _glucose_df, _hr_df
 
@@ -50,3 +52,27 @@ def test_reopening_db_persists_data(tmp_path):
 
     reopened = dbmod.connect(path)
     assert len(dbmod.load_glucose(reopened)) == 4
+
+
+def test_record_and_load_poll_log(tmp_path):
+    conn = dbmod.connect(str(tmp_path / "health.db"))
+    started = pd.Timestamp("2026-08-10 08:00:00")
+    finished = pd.Timestamp("2026-08-10 08:00:05")
+    dbmod.record_poll(conn, "garmin_live", started, finished, "success", rows_added=12)
+
+    polls = dbmod.last_polls(conn)
+    assert len(polls) == 1
+    assert polls.iloc[0]["source"] == "garmin_live"
+    assert polls.iloc[0]["status"] == "success"
+    assert polls.iloc[0]["rows_added"] == 12
+
+
+def test_last_polls_returns_most_recent_per_source(tmp_path):
+    conn = dbmod.connect(str(tmp_path / "health.db"))
+    dbmod.record_poll(conn, "garmin_live", pd.Timestamp("2026-08-10 08:00"), pd.Timestamp("2026-08-10 08:00:05"), "error", error_message="401")
+    dbmod.record_poll(conn, "garmin_live", pd.Timestamp("2026-08-10 09:00"), pd.Timestamp("2026-08-10 09:00:05"), "success", rows_added=3)
+
+    polls = dbmod.last_polls(conn)
+    assert len(polls) == 1
+    assert polls.iloc[0]["status"] == "success"
+    assert polls.iloc[0]["rows_added"] == 3

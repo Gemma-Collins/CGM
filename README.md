@@ -10,8 +10,10 @@ time-in-range table.
 - **Glucose (CGM)** — FreeStyle Libre 2 via LibreView, or xDrip+/MiaoMiao via
   a Nightscout CSV export
 
-Everything runs from files you export yourself — no credentials are stored
-and no API calls are made, so there's nothing to configure or authenticate.
+Garmin and Cronometer both work from files you export yourself; Cronometer
+always will, since it has no public API. Garmin also has a live path (see
+"Live Garmin tracking" below) that polls Garmin's servers directly instead
+of you exporting a `.fit` file each time.
 
 ## Setup
 
@@ -81,6 +83,53 @@ Useful flags:
 - `report --freq 5min` — resampling interval for aligning all sources
 - `report --low` / `--high` — target glucose range in mg/dL for the
   time-in-range calculation (defaults 70/180)
+
+## Live Garmin tracking
+
+Instead of exporting `.fit` files by hand, `poll`/`schedule` log into
+Garmin's cloud (the same account your Garmin Connect app already uses) and
+pull whatever heart rate/activity data has synced there. This uses the
+unofficial [`garminconnect`](https://github.com/cyberjunky/python-garminconnect)
+library — Garmin doesn't publish an API for individual developers, so this
+can break if Garmin changes their backend, and it needs your Garmin login
+stored where the tool runs.
+
+Set your credentials as environment variables (never as a CLI flag, so
+they don't end up in shell history):
+
+```bash
+export GARMIN_EMAIL="you@example.com"
+export GARMIN_PASSWORD="your-garmin-password"
+```
+
+**One-off pull:**
+
+```bash
+python -m health_aggregator.cli poll
+```
+
+**Run continuously** (polls forever on a jittered interval — a random gap
+between `--min-minutes` and `--max-minutes` each time, by default 15-30,
+rather than a perfectly fixed cadence):
+
+```bash
+python -m health_aggregator.cli schedule
+```
+
+The first login caches a session token to `~/.garmin_tokens` (override with
+`--tokenstore`), so later polls don't need your password again until that
+token expires.
+
+**Check whether it's actually running**, and how much data has accumulated:
+
+```bash
+python -m health_aggregator.cli status
+```
+
+This shows the most recent poll's outcome (success/error, how long ago,
+rows added, and the error message if it failed) plus a row count for each
+data type currently stored — the heartbeat to glance at instead of reading
+logs.
 
 ## How it works
 
