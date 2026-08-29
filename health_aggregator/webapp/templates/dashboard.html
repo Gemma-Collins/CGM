@@ -1,0 +1,24 @@
+{% extends "base.html" %}
+{% block title %}Dashboard - Health Data{% endblock %}
+{% block content %}
+<h1>Dashboard</h1>
+
+{% if polls %}
+<div class="poll-status">
+  {% for p in polls %}
+    <span class="pill pill-{{ p.status }}">{{ p.source }}: {{ p.status }}</span>
+  {% endfor %}
+</div>
+{% endif %}
+
+{% if has_data %}
+  {{ chart_html | safe }}
+  <h2>Daily summary</h2>
+  {{ table_html | safe }}
+{% else %}
+  <p class="empty-state">
+    No data yet. Head to <a href="{{ url_for('connections') }}">Connections</a> to link Garmin
+    or your CGM, or run <code>ingest</code> from the command line with an export file.
+  </p>
+{% endif %}
+{% endblock %}

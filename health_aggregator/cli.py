@@ -236,5 +236,20 @@ def status(db_path):
     conn.close()
 
 
+@main.command()
+@_DB_OPTION
+@click.option("--host", default="127.0.0.1", show_default=True, help="Bind address. Keep this as 127.0.0.1 (localhost-only) unless you understand the exposure of opening it to your network.")
+@click.option("--port", default=5000, show_default=True)
+def serve(db_path, host, port):
+    """Launch the local web UI: a Connections page to link Garmin/CGM once
+    (no more re-entering credentials or running poll by hand), and a
+    Dashboard page with the same chart 'report' builds."""
+    from health_aggregator.webapp.app import create_app
+
+    app = create_app(db_path=db_path)
+    click.echo(f"Serving on http://{host}:{port} - Ctrl+C to stop")
+    app.run(host=host, port=port, debug=False)
+
+
 if __name__ == "__main__":
     main()

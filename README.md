@@ -89,12 +89,43 @@ Useful flags:
 - `report --low` / `--high` — target glucose range in mg/dL for the
   time-in-range calculation (defaults 70/180)
 
-## Live tracking
+## Web UI (recommended for everyday use)
+
+Instead of environment variables and CLI flags, a small local web app gives
+you a **Connections** page (link Garmin/CGM once, credentials are encrypted
+and saved so you never reconnect or re-run a poll command by hand again)
+and a **Dashboard** page (the same chart `report` builds, always current).
+
+```bash
+python -m health_aggregator.cli serve
+```
+
+Then open `http://127.0.0.1:5000` in a browser. On **Connections**, enter
+your Garmin login or Nightscout URL/token and click Connect — each one is
+validated immediately, then polls automatically in the background on the
+same jittered schedule described below (15-30 min for Garmin, 5-10 min for
+Nightscout), for as long as `serve` keeps running. **Dashboard** always
+reflects whatever's currently in the database, live sources included.
+
+Credentials are encrypted at rest (a key file under `~/.health_aggregator/`,
+separate from the repo) and stored in the same SQLite database as
+everything else — nothing is sent anywhere except directly to Garmin's or
+your Nightscout site's own servers, exactly as the CLI commands below do.
+
+This only runs locally on your own machine for now (`127.0.0.1` — not
+reachable from other devices or the internet). Turning this into something
+you can share a link to with an educator, e.g. embedded on a website, is a
+separate next step — the local version is the place to start.
+
+Cronometer still has no live path here either — keep using
+`ingest --cronometer-csv` from the command line for it.
+
+## Live tracking (CLI, if you'd rather not use the web UI)
 
 Both live sources write into the same database the file importer uses, so
-`report` picks up whatever they've fetched automatically — there's no
-separate "live view"; it's the same dashboard, just fed automatically
-instead of by hand.
+`report` (or the Dashboard page above) picks up whatever they've fetched
+automatically — there's no separate "live view"; it's the same dashboard,
+just fed automatically instead of by hand.
 
 ### Garmin
 
@@ -174,13 +205,20 @@ reading logs.
 ## How it works
 
 Each source is parsed into a small pandas schema (see `models.py`):
-glucose readings, carb entries, heart-rate samples, and activity summaries.
-`ingest` upserts those into SQLite tables (`db.py`) keyed so re-importing
-the same reading is a no-op. `report` loads everything (or a date range)
-back out, and `merge.py` resamples it onto a common time grid (glucose/HR
-averaged per bucket, carbs summed per bucket), flagging which buckets fall
-inside a Garmin activity. `report.py` renders that merged timeline as a
-Plotly chart plus a per-day summary table.
+glucose readings, carb entries, heart-rate samples, activity summaries, and
+insulin doses. `ingest` upserts those into SQLite tables (`db.py`) keyed so
+re-importing the same reading is a no-op. `report` loads everything (or a
+date range) back out, and `merge.py` resamples it onto a common time grid
+(glucose/HR averaged per bucket, carbs/insulin summed per bucket), flagging
+which buckets fall inside a Garmin activity. `report.py` renders that
+merged timeline as a Plotly chart plus a per-day summary table.
+
+`credentials.py` encrypts and stores Garmin/Nightscout credentials for the
+web UI (`webapp/`), which is a thin Flask layer over the same `db.py`,
+`live/`, and `report.py` code the CLI uses — connecting a source there just
+calls the same `garmin_live`/`nightscout_live` functions `poll`/`poll-cgm`
+call, and starts a background thread running the same `scheduler.py` loop
+`schedule`/`schedule-cgm` use.
 
 ## Development
 

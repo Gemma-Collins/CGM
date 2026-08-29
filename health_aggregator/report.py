@@ -110,7 +110,7 @@ def build_figure(merged: pd.DataFrame, low_mg_dl: float = 70, high_mg_dl: float 
     return fig
 
 
-def _daily_table_html(daily: pd.DataFrame) -> str:
+def daily_table_html(daily: pd.DataFrame) -> str:
     if daily.empty:
         return "<p>No data.</p>"
     display = daily.rename(
@@ -129,7 +129,7 @@ def _daily_table_html(daily: pd.DataFrame) -> str:
 def build_report(merged: pd.DataFrame, daily: pd.DataFrame, output_path: str, low_mg_dl: float = 70, high_mg_dl: float = 180) -> None:
     fig = build_figure(merged, low_mg_dl=low_mg_dl, high_mg_dl=high_mg_dl)
     chart_html = fig.to_html(include_plotlyjs=True, full_html=False)
-    table_html = _daily_table_html(daily)
+    table_html = daily_table_html(daily)
 
     html = f"""<!DOCTYPE html>
 <html>

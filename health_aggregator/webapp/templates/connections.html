@@ -1,0 +1,58 @@
+{% extends "base.html" %}
+{% block title %}Connections - Health Data{% endblock %}
+{% block content %}
+<h1>Connections</h1>
+<p class="lede">Connect once - credentials are encrypted and saved locally, and each source
+polls automatically in the background afterwards, so you don't need to reconnect or run
+anything by hand again.</p>
+
+<section class="connection-card">
+  <h2>Garmin</h2>
+  {% if statuses.garmin %}
+    <p class="status status-{{ statuses.garmin.last_status }}">
+      Status: {{ statuses.garmin.last_status }} · connected {{ statuses.garmin.connected_at }}
+    </p>
+    <form method="post" action="{{ url_for('disconnect_garmin') }}">
+      <button type="submit" class="btn btn-secondary">Disconnect</button>
+    </form>
+  {% else %}
+    <form method="post" action="{{ url_for('connect_garmin') }}">
+      <label>Garmin email
+        <input type="email" name="email" required>
+      </label>
+      <label>Garmin password
+        <input type="password" name="password" required>
+      </label>
+      <button type="submit" class="btn">Connect</button>
+    </form>
+  {% endif %}
+</section>
+
+<section class="connection-card">
+  <h2>CGM (Nightscout - xDrip+ / MiaoMiao / Libre)</h2>
+  {% if statuses.nightscout %}
+    <p class="status status-{{ statuses.nightscout.last_status }}">
+      Status: {{ statuses.nightscout.last_status }} · connected {{ statuses.nightscout.connected_at }}
+    </p>
+    <form method="post" action="{{ url_for('disconnect_nightscout') }}">
+      <button type="submit" class="btn btn-secondary">Disconnect</button>
+    </form>
+  {% else %}
+    <form method="post" action="{{ url_for('connect_nightscout') }}">
+      <label>Nightscout site URL
+        <input type="url" name="url" placeholder="https://your-site.example.com" required>
+      </label>
+      <label>Read-only token (preferred)
+        <input type="text" name="token">
+      </label>
+      <label>API secret (only if your site has no token)
+        <input type="password" name="api_secret">
+      </label>
+      <button type="submit" class="btn">Connect</button>
+    </form>
+  {% endif %}
+</section>
+
+<p class="lede">Cronometer has no live connection - it's always a file import via
+<code>ingest --cronometer-csv</code> from the command line.</p>
+{% endblock %}
