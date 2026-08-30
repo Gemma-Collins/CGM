@@ -42,7 +42,7 @@ def _to_naive_timestamp(value: str) -> pd.Timestamp:
     return ts.tz_localize(None) if ts.tzinfo is not None else ts
 
 
-def _events_payload_to_frame(items: list) -> pd.DataFrame:
+def _events_payload_to_frame(items: list, calendar_name: str = "primary") -> pd.DataFrame:
     """Normalize a Calendar API `events.list` response's `items` list.
     Handles both timed events (`dateTime`) and all-day events (`date`)."""
     rows = []
@@ -58,6 +58,7 @@ def _events_payload_to_frame(items: list) -> pd.DataFrame:
                 "end": _to_naive_timestamp(end_raw),
                 "title": title,
                 "event_type": _classify_event(title),
+                "calendar_name": calendar_name,
             }
         )
     if not rows:
@@ -101,11 +102,11 @@ def connect_interactive(client_secrets_path: str = DEFAULT_CLIENT_SECRETS_PATH, 
         f.write(creds.to_json())
 
 
-def fetch_events(service, time_min: pd.Timestamp, time_max: pd.Timestamp) -> list:
+def fetch_events(service, time_min: pd.Timestamp, time_max: pd.Timestamp, calendar_id: str = "primary") -> list:
     result = (
         service.events()
         .list(
-            calendarId="primary",
+            calendarId=calendar_id,
             timeMin=time_min.isoformat() + "Z",
             timeMax=time_max.isoformat() + "Z",
             singleEvents=True,
@@ -116,9 +117,21 @@ def fetch_events(service, time_min: pd.Timestamp, time_max: pd.Timestamp) -> lis
     return result.get("items", [])
 
 
+def list_calendars(service) -> list:
+    """Every calendar on the account (primary plus any others - work,
+    shared, holidays, ...), so events can be tagged with which one they
+    came from and shown/hidden per-calendar in the day view."""
+    result = service.calendarList().list().execute()
+    return [
+        {"id": item["id"], "summary": item.get("summary", item["id"])}
+        for item in result.get("items", [])
+    ]
+
+
 def poll_once(conn, token_path: str = DEFAULT_TOKEN_PATH, days_back: int = 1, days_ahead: int = 7) -> dict:
-    """Fetch events in [now - days_back, now + days_ahead] and upsert them.
-    Raises if Calendar isn't connected yet - call connect_interactive first."""
+    """Fetch events from every calendar on the account, in
+    [now - days_back, now + days_ahead], and upsert them. Raises if
+    Calendar isn't connected yet - call connect_interactive first."""
     from googleapiclient.discovery import build
 
     creds = _load_cached_credentials(token_path)
@@ -127,6 +140,12 @@ def poll_once(conn, token_path: str = DEFAULT_TOKEN_PATH, days_back: int = 1, da
 
     service = build("calendar", "v3", credentials=creds)
     now = pd.Timestamp.now()
-    items = fetch_events(service, now - pd.Timedelta(days=days_back), now + pd.Timedelta(days=days_ahead))
-    events_df = _events_payload_to_frame(items)
+    time_min, time_max = now - pd.Timedelta(days=days_back), now + pd.Timedelta(days=days_ahead)
+
+    frames = []
+    for calendar in list_calendars(service):
+        items = fetch_events(service, time_min, time_max, calendar_id=calendar["id"])
+        frames.append(_events_payload_to_frame(items, calendar_name=calendar["summary"]))
+
+    events_df = pd.concat(frames, ignore_index=True) if frames else empty_frame(CALENDAR_COLUMNS)
     return {"calendar_events": dbmod.upsert_calendar_events(conn, events_df)}

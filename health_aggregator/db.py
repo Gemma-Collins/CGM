@@ -67,8 +67,9 @@ CREATE TABLE IF NOT EXISTS calendar_events (
     "end" TEXT NOT NULL,
     title TEXT,
     event_type TEXT,
+    calendar_name TEXT,
     source TEXT NOT NULL,
-    UNIQUE("start", title, source)
+    UNIQUE("start", title, source, calendar_name)
 );
 CREATE TABLE IF NOT EXISTS poll_log (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -85,7 +86,17 @@ CREATE TABLE IF NOT EXISTS poll_log (
 def connect(db_path: str) -> sqlite3.Connection:
     conn = sqlite3.connect(db_path)
     conn.executescript(_SCHEMA)
+    _migrate(conn)
     return conn
+
+
+def _migrate(conn: sqlite3.Connection) -> None:
+    """Add columns introduced after a table already existed - CREATE TABLE
+    IF NOT EXISTS alone won't touch a table that's already there."""
+    cols = [row[1] for row in conn.execute("PRAGMA table_info(calendar_events)").fetchall()]
+    if "calendar_name" not in cols:
+        conn.execute("ALTER TABLE calendar_events ADD COLUMN calendar_name TEXT")
+        conn.commit()
 
 
 def _upsert(conn: sqlite3.Connection, table: str, df: pd.DataFrame, columns: list) -> int:
@@ -180,6 +191,14 @@ def load_insulin(conn: sqlite3.Connection, start=None, end=None) -> pd.DataFrame
     where, params = _where_range("timestamp", start, end)
     df = pd.read_sql_query(f"SELECT * FROM insulin_doses{where}", conn, params=params)
     return ensure_schema(df, INSULIN_COLUMNS) if not df.empty else empty_frame(INSULIN_COLUMNS)
+
+
+def dates_with_data(conn: sqlite3.Connection, table: str, column: str, start, end) -> set:
+    """Which calendar dates (as 'YYYY-MM-DD' strings) have at least one row
+    in `table` within [start, end] - used to mark days on a month view."""
+    where, params = _where_range(column, start, end)
+    rows = conn.execute(f'SELECT DISTINCT date("{column}") FROM {table}{where}', params).fetchall()
+    return {r[0] for r in rows if r[0] is not None}
 
 
 def latest_timestamp(conn: sqlite3.Connection, table: str, column: str, source: str):

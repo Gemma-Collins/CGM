@@ -9,6 +9,7 @@
 <nav>
   <span class="brand">Health data aggregator</span>
   <a href="{{ url_for('dashboard') }}">Dashboard</a>
+  <a href="{{ url_for('day_view') }}">Day View</a>
   <a href="{{ url_for('connections') }}">Connections</a>
 </nav>
 {% with messages = get_flashed_messages(with_categories=true) %}

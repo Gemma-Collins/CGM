@@ -91,6 +91,7 @@ def test_upsert_and_load_calendar_events(tmp_path):
                 "end": pd.to_datetime(["2026-08-10 08:00"]),
                 "title": ["Gym"],
                 "event_type": ["activity"],
+                "calendar_name": ["Personal"],
                 "source": ["google_calendar"],
             }
         ),
@@ -105,6 +106,54 @@ def test_upsert_and_load_calendar_events(tmp_path):
 
     second = dbmod.upsert_calendar_events(conn, df)
     assert second == 0
+
+
+def _two_day_glucose_df():
+    from health_aggregator.models import GLUCOSE_COLUMNS, ensure_schema
+
+    return ensure_schema(
+        pd.DataFrame(
+            {
+                "timestamp": pd.to_datetime(["2026-08-10 08:00", "2026-08-10 12:00", "2026-08-11 08:00"]),
+                "mg_dl": [90.0, 100.0, 110.0],
+                "reading_type": ["historic"] * 3,
+                "source": ["libreview"] * 3,
+            }
+        ),
+        GLUCOSE_COLUMNS,
+    )
+
+
+def test_dates_with_data_returns_distinct_dates_in_range(tmp_path):
+    conn = dbmod.connect(str(tmp_path / "health.db"))
+    dbmod.upsert_glucose(conn, _two_day_glucose_df())
+
+    dates = dbmod.dates_with_data(conn, "glucose_readings", "timestamp", "2026-08-01", "2026-08-31")
+    assert dates == {"2026-08-10", "2026-08-11"}
+
+
+def test_dates_with_data_respects_range(tmp_path):
+    conn = dbmod.connect(str(tmp_path / "health.db"))
+    dbmod.upsert_glucose(conn, _two_day_glucose_df())
+    dates = dbmod.dates_with_data(conn, "glucose_readings", "timestamp", "2026-08-11", "2026-08-31")
+    assert dates == {"2026-08-11"}
+
+
+def test_migrate_adds_calendar_name_column_to_pre_existing_table(tmp_path):
+    import sqlite3
+
+    db_path = str(tmp_path / "old.db")
+    raw = sqlite3.connect(db_path)
+    raw.execute(
+        'CREATE TABLE calendar_events ("start" TEXT NOT NULL, "end" TEXT NOT NULL, title TEXT, '
+        'event_type TEXT, source TEXT NOT NULL, UNIQUE("start", title, source))'
+    )
+    raw.commit()
+    raw.close()
+
+    conn = dbmod.connect(db_path)  # should migrate without raising
+    cols = [row[1] for row in conn.execute("PRAGMA table_info(calendar_events)").fetchall()]
+    assert "calendar_name" in cols
 
 
 def test_record_and_load_poll_log(tmp_path):

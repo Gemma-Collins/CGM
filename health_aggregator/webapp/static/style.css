@@ -144,6 +144,169 @@ td:first-child, th:first-child { text-align: left; }
   padding: 2rem 0;
 }
 
+.day-layout {
+  display: flex;
+  gap: 2rem;
+  align-items: flex-start;
+  flex-wrap: wrap;
+}
+
+.month-picker {
+  flex: none;
+  width: 280px;
+  background: #fff;
+  border: 1px solid #ddd;
+  border-radius: 6px;
+  padding: 1rem;
+}
+
+.month-nav {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  font-weight: 600;
+  margin-bottom: 0.6rem;
+}
+
+.month-nav a {
+  color: #1e6b3a;
+  text-decoration: none;
+  font-size: 1.1rem;
+  padding: 0.1rem 0.5rem;
+}
+
+.month-grid {
+  width: 100%;
+  border-collapse: collapse;
+  table-layout: fixed;
+}
+
+.month-grid th {
+  font-size: 0.72rem;
+  color: #888;
+  font-weight: 500;
+  padding-bottom: 0.3rem;
+}
+
+.month-grid td {
+  text-align: center;
+  padding: 0;
+  border-bottom: none;
+}
+
+.month-grid td a {
+  display: block;
+  padding: 0.4rem 0;
+  border-radius: 4px;
+  text-decoration: none;
+  color: #1a1a1a;
+  font-size: 0.88rem;
+}
+
+.month-grid td a:hover {
+  background: #eef3f0;
+}
+
+.month-grid td.other-month a {
+  color: #ccc;
+}
+
+.month-grid td.selected a {
+  background: #1e6b3a;
+  color: #fff;
+  font-weight: 600;
+}
+
+.month-grid td.has-data a::after {
+  content: "";
+  display: block;
+  width: 4px;
+  height: 4px;
+  border-radius: 50%;
+  background: #ff7f0e;
+  margin: 2px auto 0;
+}
+
+.month-grid td.selected.has-data a::after {
+  background: #fff;
+}
+
+.month-key {
+  font-size: 0.78rem;
+  margin: 0.8rem 0 0;
+}
+
+.day-detail {
+  flex: 1;
+  min-width: 320px;
+}
+
+.toggle-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 1.2rem;
+  font-size: 0.9rem;
+  margin-bottom: 0.6rem;
+}
+
+.day-section {
+  background: #fff;
+  border: 1px solid #ddd;
+  border-radius: 6px;
+  padding: 1rem 1.2rem;
+  margin-bottom: 1rem;
+}
+
+.day-section h3 {
+  margin-top: 0;
+  font-size: 1rem;
+}
+
+.entry-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.entry-list li {
+  padding: 0.5rem 0;
+  border-bottom: 1px solid #eee;
+}
+
+.entry-list li:last-child {
+  border-bottom: none;
+}
+
+.entry-meta {
+  display: block;
+  font-size: 0.82rem;
+  color: #666;
+}
+
+.stat-row {
+  display: flex;
+  gap: 1.2rem;
+  flex-wrap: wrap;
+}
+
+.stat-tile {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  min-width: 70px;
+}
+
+.stat-value {
+  font-size: 1.4rem;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+
+.stat-label {
+  font-size: 0.75rem;
+  color: #888;
+}
+
 .code-block {
   background: #1a2b26;
   color: #cfe8df;

@@ -9,10 +9,12 @@ commands use, so the dashboard stays current without you running anything
 by hand.
 """
 
+import calendar as calendar_module
 import os
 import tempfile
 import threading
 
+import pandas as pd
 from flask import Flask, flash, redirect, render_template, request, url_for
 
 from health_aggregator import credentials as credmod
@@ -146,6 +148,60 @@ def create_app(db_path: str = "health_data.db") -> Flask:
             chart_html=chart_html,
             table_html=table_html,
             polls=polls.to_dict("records") if not polls.empty else [],
+        )
+
+    @app.route("/day")
+    def day_view():
+        try:
+            selected_date = pd.Timestamp(request.args.get("date"))
+            if pd.isna(selected_date):
+                raise ValueError("no date given")
+        except (ValueError, TypeError):
+            selected_date = pd.Timestamp.now()
+        selected_date = selected_date.normalize()
+
+        day_start = selected_date
+        day_end = selected_date + pd.Timedelta(days=1) - pd.Timedelta(seconds=1)
+        year, month = selected_date.year, selected_date.month
+        month_start = pd.Timestamp(year=year, month=month, day=1)
+        month_end = month_start + pd.offsets.MonthEnd(0)
+
+        conn = get_conn()
+        activities = dbmod.load_activities(conn, start=day_start, end=day_end)
+        hr_df = dbmod.load_heart_rate(conn, start=day_start, end=day_end)
+        events = dbmod.load_calendar_events(conn, start=day_start, end=day_end)
+        data_dates = (
+            dbmod.dates_with_data(conn, "activities", "start", month_start, month_end)
+            | dbmod.dates_with_data(conn, "heart_rate_samples", "timestamp", month_start, month_end)
+            | dbmod.dates_with_data(conn, "calendar_events", "start", month_start, month_end)
+        )
+        conn.close()
+
+        hr_summary = None
+        if not hr_df.empty:
+            hr_summary = {
+                "min": round(hr_df["bpm"].min(), 1),
+                "avg": round(hr_df["bpm"].mean(), 1),
+                "max": round(hr_df["bpm"].max(), 1),
+                "count": len(hr_df),
+            }
+
+        calendar_names = sorted(events["calendar_name"].dropna().unique().tolist()) if not events.empty else []
+        prev_month = (month_start - pd.Timedelta(days=1)).replace(day=1)
+        next_month = month_end + pd.Timedelta(days=1)
+
+        return render_template(
+            "day.html",
+            selected_date=selected_date,
+            month_start=month_start,
+            prev_month=prev_month,
+            next_month=next_month,
+            weeks=calendar_module.Calendar(firstweekday=6).monthdatescalendar(year, month),
+            data_dates=data_dates,
+            activities=activities.to_dict("records"),
+            hr_summary=hr_summary,
+            events=events.to_dict("records"),
+            calendar_names=calendar_names,
         )
 
     @app.route("/connections")

@@ -97,6 +97,119 @@ def test_disconnect_garmin_removes_credentials(tmp_path, monkeypatch):
     assert credmod.load_credentials(conn, "garmin", key_path=key_path) is None
 
 
+def test_day_view_defaults_to_today_with_no_data(tmp_path, monkeypatch):
+    client = _client(tmp_path / "health.db", monkeypatch)
+    resp = client.get("/day")
+    assert resp.status_code == 200
+    assert b"No activities logged this day" in resp.data
+    assert b"No heart rate data this day" in resp.data
+    assert b"No calendar events this day" in resp.data
+
+
+def test_day_view_shows_activity_and_heart_rate_for_selected_date(tmp_path, monkeypatch):
+    import pandas as pd
+
+    from health_aggregator.models import ACTIVITY_COLUMNS, HEART_RATE_COLUMNS, ensure_schema
+
+    db_path = tmp_path / "health.db"
+    conn = dbmod.connect(str(db_path))
+    dbmod.upsert_activities(
+        conn,
+        ensure_schema(
+            pd.DataFrame(
+                {
+                    "start": pd.to_datetime(["2026-08-10 08:00"]),
+                    "end": pd.to_datetime(["2026-08-10 08:30"]),
+                    "activity_type": ["running"],
+                    "avg_hr": [140.0],
+                    "max_hr": [160.0],
+                    "calories_kcal": [300.0],
+                    "distance_m": [5000.0],
+                    "steps": [6000.0],
+                    "source": ["garmin_fit"],
+                }
+            ),
+            ACTIVITY_COLUMNS,
+        ),
+    )
+    dbmod.upsert_heart_rate(
+        conn,
+        ensure_schema(
+            pd.DataFrame(
+                {
+                    "timestamp": pd.to_datetime(["2026-08-10 08:05", "2026-08-10 08:10"]),
+                    "bpm": [140.0, 150.0],
+                    "source": ["garmin_fit"] * 2,
+                }
+            ),
+            HEART_RATE_COLUMNS,
+        ),
+    )
+    conn.close()
+
+    client = _client(db_path, monkeypatch)
+    resp = client.get("/day?date=2026-08-10")
+
+    assert resp.status_code == 200
+    assert b"running" in resp.data
+    assert b"min bpm" in resp.data
+    assert b"140.0" in resp.data  # min bpm value
+
+
+def test_day_view_month_grid_marks_days_with_data(tmp_path, monkeypatch):
+    db_path = tmp_path / "health.db"
+    conn = dbmod.connect(str(db_path))
+    dbmod.upsert_glucose(conn, _glucose_df())  # 2026-08-10
+    conn.close()
+
+    client = _client(db_path, monkeypatch)
+    resp = client.get("/day?date=2026-08-15")  # different day, same month
+
+    assert resp.status_code == 200
+    assert b"August 2026" in resp.data
+
+
+def test_day_view_shows_calendar_events_with_toggle_per_calendar(tmp_path, monkeypatch):
+    import pandas as pd
+
+    from health_aggregator.models import CALENDAR_COLUMNS, ensure_schema
+
+    db_path = tmp_path / "health.db"
+    conn = dbmod.connect(str(db_path))
+    dbmod.upsert_calendar_events(
+        conn,
+        ensure_schema(
+            pd.DataFrame(
+                {
+                    "start": pd.to_datetime(["2026-08-10 07:00", "2026-08-10 09:00"]),
+                    "end": pd.to_datetime(["2026-08-10 08:00", "2026-08-10 09:30"]),
+                    "title": ["Gym", "Standup"],
+                    "event_type": ["activity", "other"],
+                    "calendar_name": ["Personal", "Work"],
+                    "source": ["google_calendar"] * 2,
+                }
+            ),
+            CALENDAR_COLUMNS,
+        ),
+    )
+    conn.close()
+
+    client = _client(db_path, monkeypatch)
+    resp = client.get("/day?date=2026-08-10")
+
+    assert resp.status_code == 200
+    assert b"Gym" in resp.data
+    assert b"Standup" in resp.data
+    assert b'toggleCalendar(\'Personal\'' in resp.data
+    assert b'toggleCalendar(\'Work\'' in resp.data
+
+
+def test_day_view_invalid_date_falls_back_to_today(tmp_path, monkeypatch):
+    client = _client(tmp_path / "health.db", monkeypatch)
+    resp = client.get("/day?date=not-a-date")
+    assert resp.status_code == 200
+
+
 def test_connections_page_shows_calendar_cli_instructions_when_not_connected(tmp_path, monkeypatch):
     monkeypatch.setattr("health_aggregator.webapp.app.calendar_live.DEFAULT_TOKEN_PATH", str(tmp_path / "no_token.json"))
     client = _client(tmp_path / "health.db", monkeypatch)

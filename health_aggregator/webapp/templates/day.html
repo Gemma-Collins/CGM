@@ -1,0 +1,117 @@
+{% extends "base.html" %}
+{% block title %}Day View - Health Data{% endblock %}
+{% block content %}
+<h1>Day view</h1>
+
+<div class="day-layout">
+  <aside class="month-picker">
+    <div class="month-nav">
+      <a href="{{ url_for('day_view', date=prev_month.strftime('%Y-%m-%d')) }}">&larr;</a>
+      <span>{{ month_start.strftime('%B %Y') }}</span>
+      <a href="{{ url_for('day_view', date=next_month.strftime('%Y-%m-%d')) }}">&rarr;</a>
+    </div>
+    <table class="month-grid">
+      <thead>
+        <tr>
+          {% for label in ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"] %}
+            <th>{{ label }}</th>
+          {% endfor %}
+        </tr>
+      </thead>
+      <tbody>
+        {% for week in weeks %}
+          <tr>
+            {% for day in week %}
+              {% set day_str = day.strftime('%Y-%m-%d') %}
+              <td class="{% if day.month != month_start.month %}other-month{% endif %} {% if day_str == selected_date.strftime('%Y-%m-%d') %}selected{% endif %} {% if day_str in data_dates %}has-data{% endif %}">
+                <a href="{{ url_for('day_view', date=day_str) }}">{{ day.day }}</a>
+              </td>
+            {% endfor %}
+          </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+    <p class="lede month-key">Dots mark days with activity, heart rate, or calendar data.</p>
+  </aside>
+
+  <section class="day-detail">
+    <h2>{{ selected_date.strftime('%A, %B %d, %Y') }}</h2>
+
+    <div class="toggle-row">
+      <label><input type="checkbox" checked onchange="toggleSection('activities-section', this.checked)"> Activities</label>
+      <label><input type="checkbox" checked onchange="toggleSection('heart-rate-section', this.checked)"> Heart rate</label>
+    </div>
+
+    <div id="activities-section" class="day-section">
+      <h3>Exercise logged</h3>
+      {% if activities %}
+        <ul class="entry-list">
+          {% for a in activities %}
+            <li>
+              <strong>{{ a.activity_type }}</strong>
+              <span class="entry-meta">{{ a.start.strftime('%I:%M %p') }}&ndash;{{ a.end.strftime('%I:%M %p') }}</span>
+              <span class="entry-meta">
+                {% if a.avg_hr %}avg {{ a.avg_hr|round|int }} bpm{% endif %}
+                {% if a.max_hr %}&middot; max {{ a.max_hr|round|int }} bpm{% endif %}
+                {% if a.calories_kcal %}&middot; {{ a.calories_kcal|round|int }} kcal{% endif %}
+                {% if a.distance_m %}&middot; {{ (a.distance_m / 1000)|round(2) }} km{% endif %}
+              </span>
+            </li>
+          {% endfor %}
+        </ul>
+      {% else %}
+        <p class="empty-state">No activities logged this day.</p>
+      {% endif %}
+    </div>
+
+    <div id="heart-rate-section" class="day-section">
+      <h3>Heart rate</h3>
+      {% if hr_summary %}
+        <div class="stat-row">
+          <div class="stat-tile"><span class="stat-value">{{ hr_summary.min }}</span><span class="stat-label">min bpm</span></div>
+          <div class="stat-tile"><span class="stat-value">{{ hr_summary.avg }}</span><span class="stat-label">avg bpm</span></div>
+          <div class="stat-tile"><span class="stat-value">{{ hr_summary.max }}</span><span class="stat-label">max bpm</span></div>
+          <div class="stat-tile"><span class="stat-value">{{ hr_summary.count }}</span><span class="stat-label">readings</span></div>
+        </div>
+      {% else %}
+        <p class="empty-state">No heart rate data this day.</p>
+      {% endif %}
+    </div>
+
+    <div id="calendar-section" class="day-section">
+      <h3>Calendar events</h3>
+      {% if calendar_names %}
+        <div class="toggle-row">
+          {% for name in calendar_names %}
+            <label><input type="checkbox" checked onchange="toggleCalendar('{{ name }}', this.checked)"> {{ name }}</label>
+          {% endfor %}
+        </div>
+      {% endif %}
+      {% if events %}
+        <ul class="entry-list">
+          {% for e in events %}
+            <li class="event-item" data-calendar="{{ e.calendar_name }}">
+              <strong>{{ e.title }}</strong>
+              <span class="entry-meta">{{ e.start.strftime('%I:%M %p') }}&ndash;{{ e.end.strftime('%I:%M %p') }}</span>
+              <span class="entry-meta">{{ e.calendar_name }} &middot; {{ e.event_type }}</span>
+            </li>
+          {% endfor %}
+        </ul>
+      {% else %}
+        <p class="empty-state">No calendar events this day.</p>
+      {% endif %}
+    </div>
+  </section>
+</div>
+
+<script>
+function toggleSection(id, show) {
+  document.getElementById(id).hidden = !show;
+}
+function toggleCalendar(name, show) {
+  document.querySelectorAll('.event-item[data-calendar="' + CSS.escape(name) + '"]').forEach(function (el) {
+    el.hidden = !show;
+  });
+}
+</script>
+{% endblock %}

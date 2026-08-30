@@ -53,6 +53,7 @@ CALENDAR_COLUMNS = {
     "end": "datetime64[ns]",
     "title": "object",
     "event_type": "object",  # "activity" | "travel" | "other", from keyword classification
+    "calendar_name": "object",  # which of the account's calendars this came from
     "source": "object",  # "google_calendar"
 }
 

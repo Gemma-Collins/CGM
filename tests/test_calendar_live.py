@@ -27,11 +27,36 @@ def test_events_payload_to_frame_handles_timed_events():
             "end": {"dateTime": "2026-08-10T08:00:00Z"},
         }
     ]
-    df = calendar_live._events_payload_to_frame(items)
+    df = calendar_live._events_payload_to_frame(items, calendar_name="Personal")
     assert len(df) == 1
     assert df.iloc[0]["event_type"] == "activity"
     assert df.iloc[0]["source"] == "google_calendar"
+    assert df.iloc[0]["calendar_name"] == "Personal"
     assert df.iloc[0]["start"].tzinfo is None
+
+
+def test_events_payload_to_frame_defaults_calendar_name_to_primary():
+    items = [{"summary": "Gym", "start": {"dateTime": "2026-08-10T07:00:00Z"}, "end": {"dateTime": "2026-08-10T08:00:00Z"}}]
+    df = calendar_live._events_payload_to_frame(items)
+    assert df.iloc[0]["calendar_name"] == "primary"
+
+
+def test_list_calendars_returns_id_and_summary():
+    service = MagicMock()
+    service.calendarList().list().execute.return_value = {
+        "items": [{"id": "primary", "summary": "gemma@example.com"}, {"id": "abc123@group.calendar.google.com", "summary": "Work"}]
+    }
+    calendars = calendar_live.list_calendars(service)
+    assert calendars == [
+        {"id": "primary", "summary": "gemma@example.com"},
+        {"id": "abc123@group.calendar.google.com", "summary": "Work"},
+    ]
+
+
+def test_list_calendars_falls_back_to_id_when_no_summary():
+    service = MagicMock()
+    service.calendarList().list().execute.return_value = {"items": [{"id": "some-id"}]}
+    assert calendar_live.list_calendars(service) == [{"id": "some-id", "summary": "some-id"}]
 
 
 def test_events_payload_to_frame_handles_all_day_events():
@@ -75,11 +100,40 @@ def test_poll_once_upserts_events_when_connected(tmp_path):
             "end": {"dateTime": "2026-08-10T08:00:00Z"},
         }
     ]
+    fake_calendars = [{"id": "primary", "summary": "gemma@example.com"}]
 
     with patch("health_aggregator.live.calendar_live._load_cached_credentials", return_value=fake_creds), patch(
         "googleapiclient.discovery.build", return_value=MagicMock()
-    ), patch("health_aggregator.live.calendar_live.fetch_events", return_value=fake_items):
+    ), patch("health_aggregator.live.calendar_live.list_calendars", return_value=fake_calendars), patch(
+        "health_aggregator.live.calendar_live.fetch_events", return_value=fake_items
+    ):
         counts = calendar_live.poll_once(conn, token_path=str(tmp_path / "token.json"))
 
     assert counts == {"calendar_events": 1}
-    assert len(dbmod.load_calendar_events(conn)) == 1
+    events = dbmod.load_calendar_events(conn)
+    assert len(events) == 1
+    assert events.iloc[0]["calendar_name"] == "gemma@example.com"
+
+
+def test_poll_once_merges_events_from_multiple_calendars(tmp_path):
+    from health_aggregator import db as dbmod
+
+    conn = dbmod.connect(str(tmp_path / "health.db"))
+    fake_creds = MagicMock(valid=True)
+    fake_calendars = [{"id": "primary", "summary": "Personal"}, {"id": "work-id", "summary": "Work"}]
+
+    def fake_fetch(service, time_min, time_max, calendar_id="primary"):
+        if calendar_id == "primary":
+            return [{"summary": "Gym", "start": {"dateTime": "2026-08-10T07:00:00Z"}, "end": {"dateTime": "2026-08-10T08:00:00Z"}}]
+        return [{"summary": "Standup", "start": {"dateTime": "2026-08-10T09:00:00Z"}, "end": {"dateTime": "2026-08-10T09:30:00Z"}}]
+
+    with patch("health_aggregator.live.calendar_live._load_cached_credentials", return_value=fake_creds), patch(
+        "googleapiclient.discovery.build", return_value=MagicMock()
+    ), patch("health_aggregator.live.calendar_live.list_calendars", return_value=fake_calendars), patch(
+        "health_aggregator.live.calendar_live.fetch_events", side_effect=fake_fetch
+    ):
+        counts = calendar_live.poll_once(conn, token_path=str(tmp_path / "token.json"))
+
+    assert counts == {"calendar_events": 2}
+    events = dbmod.load_calendar_events(conn)
+    assert set(events["calendar_name"]) == {"Personal", "Work"}

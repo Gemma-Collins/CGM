@@ -99,8 +99,12 @@ Useful flags:
 
 Instead of environment variables and CLI flags, a small local web app gives
 you a **Connections** page (link Garmin/CGM once, credentials are encrypted
-and saved so you never reconnect or re-run a poll command by hand again)
-and a **Dashboard** page (the same chart `report` builds, always current).
+and saved so you never reconnect or re-run a poll command by hand again),
+a **Dashboard** page (the same chart `report` builds, always current), and
+a **Day View** page (pick a date from a month calendar on the left; see
+that day's exercise, heart rate, and calendar events on the right, with
+checkboxes to show/hide each Garmin data type and each Google sub-calendar
+— see "Day View" below).
 
 ```bash
 python -m health_aggregator.cli serve
@@ -122,6 +126,25 @@ This only runs locally on your own machine for now (`127.0.0.1` — not
 reachable from other devices or the internet). Turning this into something
 you can share a link to with an educator, e.g. embedded on a website, is a
 separate next step — the local version is the place to start.
+
+### Day View
+
+`http://127.0.0.1:5000/day?date=2026-08-10` (or click a date on the month
+calendar in the nav). Each day shows:
+
+- **Exercise logged** — Garmin activities that day (type, time, avg/max HR,
+  calories, distance)
+- **Heart rate** — min/avg/max/count for that day's readings
+- **Calendar events** — from every calendar on your Google account, not
+  just the primary one
+
+Checkboxes above "Exercise logged"/"Heart rate" show or hide each Garmin
+data type, and one checkbox per Google sub-calendar (e.g. "Personal",
+"Work") shows or hides just that calendar's events — all client-side, no
+page reload. Days with any data get a small dot on the month calendar so
+you can spot which days are worth looking at without clicking through
+each one. This view is read-only past data, same as the Dashboard — it
+doesn't merge these onto the glucose chart (that's still Dashboard's job).
 
 Google Calendar also shows up on Connections, but read-only — its OAuth
 consent needs a browser popup that doesn't fit a web form, so connect it
