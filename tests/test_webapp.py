@@ -202,6 +202,76 @@ def test_day_view_shows_calendar_events_with_toggle_per_calendar(tmp_path, monke
     assert b"Standup" in resp.data
     assert b'toggleCalendar(\'Personal\'' in resp.data
     assert b'toggleCalendar(\'Work\'' in resp.data
+    assert b"toggleTrace('Personal events'" in resp.data
+    assert b"toggleTrace('Work events'" in resp.data
+
+
+def test_day_view_renders_chart_with_glucose_and_calendar_markers(tmp_path, monkeypatch):
+    import pandas as pd
+
+    from health_aggregator.models import CALENDAR_COLUMNS, ensure_schema
+
+    db_path = tmp_path / "health.db"
+    conn = dbmod.connect(str(db_path))
+    dbmod.upsert_glucose(conn, _glucose_df())  # 2026-08-10
+    dbmod.upsert_calendar_events(
+        conn,
+        ensure_schema(
+            pd.DataFrame(
+                {
+                    "start": pd.to_datetime(["2026-08-10 07:00"]),
+                    "end": pd.to_datetime(["2026-08-10 07:30"]),
+                    "title": ["Morning run"],
+                    "event_type": ["activity"],
+                    "calendar_name": ["Personal"],
+                    "source": ["google_calendar"],
+                }
+            ),
+            CALENDAR_COLUMNS,
+        ),
+    )
+    conn.close()
+
+    client = _client(db_path, monkeypatch)
+    resp = client.get("/day?date=2026-08-10")
+
+    assert resp.status_code == 200
+    assert b'id="day-chart"' in resp.data
+    assert b"Personal events" in resp.data
+    assert b"No CGM, heart rate, or activity data this day" not in resp.data
+
+
+def test_day_view_no_chart_when_only_calendar_events_exist(tmp_path, monkeypatch):
+    """Calendar-only days shouldn't render an empty/broken chart."""
+    import pandas as pd
+
+    from health_aggregator.models import CALENDAR_COLUMNS, ensure_schema
+
+    db_path = tmp_path / "health.db"
+    conn = dbmod.connect(str(db_path))
+    dbmod.upsert_calendar_events(
+        conn,
+        ensure_schema(
+            pd.DataFrame(
+                {
+                    "start": pd.to_datetime(["2026-08-10 07:00"]),
+                    "end": pd.to_datetime(["2026-08-10 07:30"]),
+                    "title": ["Morning run"],
+                    "event_type": ["activity"],
+                    "calendar_name": ["Personal"],
+                    "source": ["google_calendar"],
+                }
+            ),
+            CALENDAR_COLUMNS,
+        ),
+    )
+    conn.close()
+
+    client = _client(db_path, monkeypatch)
+    resp = client.get("/day?date=2026-08-10")
+
+    assert resp.status_code == 200
+    assert b"No CGM, heart rate, or activity data this day" in resp.data
 
 
 def test_day_view_invalid_date_falls_back_to_today(tmp_path, monkeypatch):

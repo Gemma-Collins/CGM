@@ -23,6 +23,7 @@ from health_aggregator import scheduler
 from health_aggregator.importers import nutrition_pdf
 from health_aggregator.live import calendar_live, garmin_live, nightscout_live
 from health_aggregator.merge import daily_summary, merge_all
+from health_aggregator.models import CARB_COLUMNS, INSULIN_COLUMNS, empty_frame
 from health_aggregator.report import build_figure, daily_table_html
 
 _POLL_INTERVALS_MIN = {
@@ -167,6 +168,7 @@ def create_app(db_path: str = "health_data.db") -> Flask:
         month_end = month_start + pd.offsets.MonthEnd(0)
 
         conn = get_conn()
+        glucose_df = dbmod.load_glucose(conn, start=day_start, end=day_end)
         activities = dbmod.load_activities(conn, start=day_start, end=day_end)
         hr_df = dbmod.load_heart_rate(conn, start=day_start, end=day_end)
         events = dbmod.load_calendar_events(conn, start=day_start, end=day_end)
@@ -174,8 +176,16 @@ def create_app(db_path: str = "health_data.db") -> Flask:
             dbmod.dates_with_data(conn, "activities", "start", month_start, month_end)
             | dbmod.dates_with_data(conn, "heart_rate_samples", "timestamp", month_start, month_end)
             | dbmod.dates_with_data(conn, "calendar_events", "start", month_start, month_end)
+            | dbmod.dates_with_data(conn, "glucose_readings", "timestamp", month_start, month_end)
         )
         conn.close()
+
+        chart_html = None
+        if not (glucose_df.empty and hr_df.empty and activities.empty):
+            merged = merge_all(glucose_df, empty_frame(CARB_COLUMNS), hr_df, activities, empty_frame(INSULIN_COLUMNS), freq="5min")
+            fig = build_figure(merged, events_df=events)
+            fig.update_layout(height=420)
+            chart_html = fig.to_html(include_plotlyjs=True, full_html=False, div_id="day-chart")
 
         hr_summary = None
         if not hr_df.empty:
@@ -198,6 +208,7 @@ def create_app(db_path: str = "health_data.db") -> Flask:
             next_month=next_month,
             weeks=calendar_module.Calendar(firstweekday=6).monthdatescalendar(year, month),
             data_dates=data_dates,
+            chart_html=chart_html,
             activities=activities.to_dict("records"),
             hr_summary=hr_summary,
             events=events.to_dict("records"),

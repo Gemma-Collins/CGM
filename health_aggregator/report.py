@@ -32,7 +32,15 @@ def _activity_spans(merged: pd.DataFrame) -> list[tuple]:
     return spans
 
 
-def build_figure(merged: pd.DataFrame, low_mg_dl: float = 70, high_mg_dl: float = 180) -> go.Figure:
+_EVENT_MARKER_COLORS = ["#e377c2", "#8c564b", "#7f7f7f", "#bcbd22", "#17becf"]
+
+
+def build_figure(
+    merged: pd.DataFrame,
+    low_mg_dl: float = 70,
+    high_mg_dl: float = 180,
+    events_df: pd.DataFrame = None,
+) -> go.Figure:
     fig = go.Figure()
 
     if "glucose_mg_dl" in merged:
@@ -96,8 +104,39 @@ def build_figure(merged: pd.DataFrame, low_mg_dl: float = 70, high_mg_dl: float 
             annotation_position="top left",
         )
 
+    if events_df is not None and not events_df.empty:
+        glucose = merged["glucose_mg_dl"].dropna() if "glucose_mg_dl" in merged else pd.Series(dtype=float)
+        marker_y = glucose.max() * 1.05 if not glucose.empty else high_mg_dl * 1.1
+        for i, name in enumerate(sorted(events_df["calendar_name"].dropna().unique())):
+            cal_events = events_df[events_df["calendar_name"] == name]
+            fig.add_trace(
+                go.Scatter(
+                    x=cal_events["start"],
+                    y=[marker_y] * len(cal_events),
+                    mode="markers",
+                    marker=dict(symbol="diamond", size=10, color=_EVENT_MARKER_COLORS[i % len(_EVENT_MARKER_COLORS)]),
+                    name=f"{name} events",
+                    text=cal_events["title"],
+                    hovertemplate="%{text}<br>%{x|%I:%M %p}<extra></extra>",
+                    yaxis="y1",
+                )
+            )
+
+    title_parts = []
+    if "glucose_mg_dl" in merged:
+        title_parts.append("glucose")
+    if "bpm" in merged:
+        title_parts.append("heart rate")
+    if "carbs_g" in merged:
+        title_parts.append("carbs")
+    if "insulin_units" in merged:
+        title_parts.append("insulin")
+    if events_df is not None and not events_df.empty:
+        title_parts.append("calendar events")
+    title = ", ".join(title_parts).capitalize() if title_parts else "Health data"
+
     fig.update_layout(
-        title="Glucose, carbs, insulin, and heart rate",
+        title=title,
         xaxis=dict(title="Time", domain=[0, 0.82]),
         yaxis=dict(title="mg/dL", side="left"),
         yaxis2=dict(title="bpm", overlaying="y", side="right"),

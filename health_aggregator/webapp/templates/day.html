@@ -31,15 +31,24 @@
         {% endfor %}
       </tbody>
     </table>
-    <p class="lede month-key">Dots mark days with activity, heart rate, or calendar data.</p>
+    <p class="lede month-key">Dots mark days with activity, heart rate, glucose, or calendar data.</p>
   </aside>
 
   <section class="day-detail">
     <h2>{{ selected_date.strftime('%A, %B %d, %Y') }}</h2>
 
+    {% if chart_html %}
+      {{ chart_html | safe }}
+    {% else %}
+      <p class="empty-state">No CGM, heart rate, or activity data this day.</p>
+    {% endif %}
+
     <div class="toggle-row">
-      <label><input type="checkbox" checked onchange="toggleSection('activities-section', this.checked)"> Activities</label>
-      <label><input type="checkbox" checked onchange="toggleSection('heart-rate-section', this.checked)"> Heart rate</label>
+      <label><input type="checkbox" checked onchange="toggleSection('activities-section', this.checked); toggleActivityShapes(this.checked)"> Activities</label>
+      <label><input type="checkbox" checked onchange="toggleSection('heart-rate-section', this.checked); toggleTrace('Heart rate (bpm)', this.checked)"> Heart rate</label>
+      {% for name in calendar_names %}
+        <label><input type="checkbox" checked onchange="toggleCalendar('{{ name }}', this.checked); toggleTrace('{{ name }} events', this.checked)"> {{ name }}</label>
+      {% endfor %}
     </div>
 
     <div id="activities-section" class="day-section">
@@ -80,13 +89,6 @@
 
     <div id="calendar-section" class="day-section">
       <h3>Calendar events</h3>
-      {% if calendar_names %}
-        <div class="toggle-row">
-          {% for name in calendar_names %}
-            <label><input type="checkbox" checked onchange="toggleCalendar('{{ name }}', this.checked)"> {{ name }}</label>
-          {% endfor %}
-        </div>
-      {% endif %}
       {% if events %}
         <ul class="entry-list">
           {% for e in events %}
@@ -108,9 +110,36 @@
 function toggleSection(id, show) {
   document.getElementById(id).hidden = !show;
 }
+
 function toggleCalendar(name, show) {
   document.querySelectorAll('.event-item[data-calendar="' + CSS.escape(name) + '"]').forEach(function (el) {
     el.hidden = !show;
+  });
+}
+
+function toggleTrace(traceName, show) {
+  var gd = document.getElementById('day-chart');
+  if (!gd || !gd.data) return;
+  for (var i = 0; i < gd.data.length; i++) {
+    if (gd.data[i].name === traceName) {
+      Plotly.restyle('day-chart', { visible: show }, [i]);
+      return;
+    }
+  }
+}
+
+var _originalActivityShapes = null;
+var _originalActivityAnnotations = null;
+function toggleActivityShapes(show) {
+  var gd = document.getElementById('day-chart');
+  if (!gd || !gd.layout) return;
+  if (_originalActivityShapes === null) {
+    _originalActivityShapes = (gd.layout.shapes || []).slice();
+    _originalActivityAnnotations = (gd.layout.annotations || []).slice();
+  }
+  Plotly.relayout('day-chart', {
+    shapes: show ? _originalActivityShapes : [],
+    annotations: show ? _originalActivityAnnotations : [],
   });
 }
 </script>

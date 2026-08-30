@@ -130,7 +130,11 @@ separate next step — the local version is the place to start.
 ### Day View
 
 `http://127.0.0.1:5000/day?date=2026-08-10` (or click a date on the month
-calendar in the nav). Each day shows:
+calendar in the nav). Below the date, a chart plots that single day's CGM
+curve with heart rate overlaid (right axis), Garmin activity periods
+shaded, and a diamond marker for each calendar event at its start time
+(one color per sub-calendar) — so you can see how a workout or a meeting
+lines up against the glucose curve. Below the chart:
 
 - **Exercise logged** — Garmin activities that day (type, time, avg/max HR,
   calories, distance)
@@ -138,13 +142,14 @@ calendar in the nav). Each day shows:
 - **Calendar events** — from every calendar on your Google account, not
   just the primary one
 
-Checkboxes above "Exercise logged"/"Heart rate" show or hide each Garmin
-data type, and one checkbox per Google sub-calendar (e.g. "Personal",
-"Work") shows or hides just that calendar's events — all client-side, no
-page reload. Days with any data get a small dot on the month calendar so
-you can spot which days are worth looking at without clicking through
-each one. This view is read-only past data, same as the Dashboard — it
-doesn't merge these onto the glucose chart (that's still Dashboard's job).
+The checkboxes above "Exercise logged" both filter the list below *and*
+toggle that layer on the chart above it: "Activities" shows/hides the
+shaded activity bands, "Heart rate" shows/hides its line, and one checkbox
+per Google sub-calendar (e.g. "Personal", "Work") shows/hides that
+calendar's diamond markers and its events in the list — all client-side,
+no page reload. Days with any data get a small dot on the month calendar
+so you can spot which days are worth looking at without clicking through
+each one.
 
 Google Calendar also shows up on Connections, but read-only — its OAuth
 consent needs a browser popup that doesn't fit a web form, so connect it
