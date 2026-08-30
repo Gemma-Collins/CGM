@@ -103,7 +103,7 @@ def create_app(db_path: str = "health_data.db") -> Flask:
             merged = merge_all(glucose_df, carb_df, hr_df, activity_df, insulin_df)
             daily = daily_summary(merged)
             fig = build_figure(merged)
-            chart_html = fig.to_html(include_plotlyjs="cdn", full_html=False)
+            chart_html = fig.to_html(include_plotlyjs=True, full_html=False)
             table_html = daily_table_html(daily)
 
         return render_template(
