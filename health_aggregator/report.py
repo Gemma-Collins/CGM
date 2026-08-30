@@ -32,7 +32,7 @@ def _activity_spans(merged: pd.DataFrame) -> list[tuple]:
     return spans
 
 
-_EVENT_MARKER_COLORS = ["#e377c2", "#8c564b", "#7f7f7f", "#bcbd22", "#17becf"]
+EVENT_LANE_COLORS = ["#9467bd", "#e377c2", "#8c564b", "#7f7f7f", "#bcbd22", "#17becf"]
 
 
 def build_figure(
@@ -49,6 +49,7 @@ def build_figure(
                 x=merged["timestamp"],
                 y=merged["glucose_mg_dl"],
                 name="Glucose (mg/dL)",
+                meta="glucose",
                 line=dict(color="#d62728"),
                 yaxis="y1",
             )
@@ -61,6 +62,7 @@ def build_figure(
                 x=merged["timestamp"],
                 y=merged["bpm"],
                 name="Heart rate (bpm)",
+                meta="heart_rate",
                 line=dict(color="#1f77b4"),
                 yaxis="y2",
                 opacity=0.6,
@@ -74,6 +76,7 @@ def build_figure(
                 x=nonzero["timestamp"],
                 y=nonzero["carbs_g"],
                 name="Carbs (g)",
+                meta="carbs",
                 marker_color="#ff7f0e",
                 yaxis="y3",
                 width=3 * 60 * 1000,  # 3 minutes, in ms, so bars stay visible
@@ -87,40 +90,65 @@ def build_figure(
                 x=nonzero["timestamp"],
                 y=nonzero["insulin_units"],
                 name="Insulin (u)",
+                meta="insulin",
                 marker_color="#17becf",
                 yaxis="y4",
                 width=3 * 60 * 1000,
             )
         )
 
-    for start, end, label in _activity_spans(merged):
-        fig.add_vrect(
-            x0=start,
-            x1=end,
-            fillcolor="#9467bd",
-            opacity=0.12,
-            line_width=0,
-            annotation_text=label,
-            annotation_position="top left",
+    # Activities and calendar events each get their own horizontal "lane" in a
+    # thin strip along the top of the chart, spanning their actual start-end
+    # time - a mini timeline, not just a point-in-time marker.
+    activity_spans = _activity_spans(merged)
+    calendar_names = (
+        sorted(events_df["calendar_name"].dropna().unique()) if events_df is not None and not events_df.empty else []
+    )
+    lanes = (["Activities"] if activity_spans else []) + list(calendar_names)
+    has_timeline = bool(lanes)
+
+    if activity_spans:
+        lane_y = lanes.index("Activities")
+        xs, ys, texts = [], [], []
+        for start, end, label in activity_spans:
+            xs += [start, end, None]
+            ys += [lane_y, lane_y, None]
+            texts += [label, label, None]
+        fig.add_trace(
+            go.Scatter(
+                x=xs,
+                y=ys,
+                mode="lines",
+                line=dict(width=10, color=EVENT_LANE_COLORS[0]),
+                name="Activities",
+                meta="activities",
+                yaxis="y5",
+                text=texts,
+                hoverinfo="text",
+            )
         )
 
-    if events_df is not None and not events_df.empty:
-        glucose = merged["glucose_mg_dl"].dropna() if "glucose_mg_dl" in merged else pd.Series(dtype=float)
-        marker_y = glucose.max() * 1.05 if not glucose.empty else high_mg_dl * 1.1
-        for i, name in enumerate(sorted(events_df["calendar_name"].dropna().unique())):
-            cal_events = events_df[events_df["calendar_name"] == name]
-            fig.add_trace(
-                go.Scatter(
-                    x=cal_events["start"],
-                    y=[marker_y] * len(cal_events),
-                    mode="markers",
-                    marker=dict(symbol="diamond", size=10, color=_EVENT_MARKER_COLORS[i % len(_EVENT_MARKER_COLORS)]),
-                    name=f"{name} events",
-                    text=cal_events["title"],
-                    hovertemplate="%{text}<br>%{x|%I:%M %p}<extra></extra>",
-                    yaxis="y1",
-                )
+    for i, name in enumerate(calendar_names):
+        lane_y = lanes.index(name)
+        cal_events = events_df[events_df["calendar_name"] == name]
+        xs, ys, texts = [], [], []
+        for _, e in cal_events.iterrows():
+            xs += [e["start"], e["end"], None]
+            ys += [lane_y, lane_y, None]
+            texts += [e["title"], e["title"], None]
+        fig.add_trace(
+            go.Scatter(
+                x=xs,
+                y=ys,
+                mode="lines",
+                line=dict(width=10, color=EVENT_LANE_COLORS[(i + 1) % len(EVENT_LANE_COLORS)]),
+                name=f"{name} events",
+                meta=f"cal:{name}",
+                yaxis="y5",
+                text=texts,
+                hoverinfo="text",
             )
+        )
 
     title_parts = []
     if "glucose_mg_dl" in merged:
@@ -135,17 +163,30 @@ def build_figure(
         title_parts.append("calendar events")
     title = ", ".join(title_parts).capitalize() if title_parts else "Health data"
 
-    fig.update_layout(
+    main_domain = [0, 0.7] if has_timeline else [0, 1]
+    layout_kwargs = dict(
         title=title,
         xaxis=dict(title="Time", domain=[0, 0.82]),
-        yaxis=dict(title="mg/dL", side="left"),
+        yaxis=dict(title="mg/dL", side="left", domain=main_domain),
         yaxis2=dict(title="bpm", overlaying="y", side="right"),
         yaxis3=dict(title="carbs (g)", overlaying="y", side="right", anchor="free", position=0.91, showgrid=False),
         yaxis4=dict(title="insulin (u)", overlaying="y", side="right", anchor="free", position=1.0, showgrid=False),
         legend=dict(orientation="h", y=1.08),
-        height=600,
+        height=680 if has_timeline else 600,
         barmode="overlay",
+        showlegend=True,
     )
+    if has_timeline:
+        layout_kwargs["yaxis5"] = dict(
+            domain=[0.78, 1.0],
+            anchor="x",
+            range=[-0.5, len(lanes) - 0.5],
+            tickvals=list(range(len(lanes))),
+            ticktext=lanes,
+            showgrid=False,
+            zeroline=False,
+        )
+    fig.update_layout(**layout_kwargs)
     return fig
 
 

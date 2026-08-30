@@ -131,25 +131,31 @@ separate next step — the local version is the place to start.
 
 `http://127.0.0.1:5000/day?date=2026-08-10` (or click a date on the month
 calendar in the nav). Below the date, a chart plots that single day's CGM
-curve with heart rate overlaid (right axis), Garmin activity periods
-shaded, and a diamond marker for each calendar event at its start time
-(one color per sub-calendar) — so you can see how a workout or a meeting
-lines up against the glucose curve. Below the chart:
+curve with heart rate overlaid (right axis). A thin timeline strip along
+the *top* of the chart shows Garmin activities and calendar events each as
+a horizontal line spanning their actual start-to-end time (one lane per
+activity type/sub-calendar), rather than a single point — so you can see
+not just *when* a workout or meeting happened but *how long* it ran
+against the glucose curve. Below the chart:
 
 - **Exercise logged** — Garmin activities that day (type, time, avg/max HR,
   calories, distance)
 - **Heart rate** — min/avg/max/count for that day's readings
 - **Calendar events** — from every calendar on your Google account, not
   just the primary one
+- **Glucose** — min/avg/max, % time in range, and a **units toggle**
+  (mg/dL &harr; mmol/L) that converts the chart, its target-range band, and
+  this tile's own numbers together
 
 The checkboxes above "Exercise logged" both filter the list below *and*
-toggle that layer on the chart above it: "Activities" shows/hides the
-shaded activity bands, "Heart rate" shows/hides its line, and one checkbox
-per Google sub-calendar (e.g. "Personal", "Work") shows/hides that
-calendar's diamond markers and its events in the list — all client-side,
-no page reload. Days with any data get a small dot on the month calendar
-so you can spot which days are worth looking at without clicking through
-each one.
+toggle that layer on the chart above it: "Activities" shows/hides its
+timeline lane, "Heart rate" shows/hides its line, and one checkbox per
+Google sub-calendar (e.g. "Personal", "Work") shows/hides that calendar's
+lane and its events in the list — all client-side, no page reload. Each
+tile also has a small color swatch (glucose, heart rate, activities, and
+one per calendar) that recolors that series on the chart live. Days with
+any data get a small dot on the month calendar so you can spot which days
+are worth looking at without clicking through each one.
 
 Google Calendar also shows up on Connections, but read-only — its OAuth
 consent needs a browser popup that doesn't fit a web form, so connect it

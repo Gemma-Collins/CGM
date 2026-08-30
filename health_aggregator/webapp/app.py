@@ -10,6 +10,7 @@ by hand.
 """
 
 import calendar as calendar_module
+import json
 import os
 import tempfile
 import threading
@@ -24,7 +25,7 @@ from health_aggregator.importers import nutrition_pdf
 from health_aggregator.live import calendar_live, garmin_live, nightscout_live
 from health_aggregator.merge import daily_summary, merge_all
 from health_aggregator.models import CARB_COLUMNS, INSULIN_COLUMNS, empty_frame
-from health_aggregator.report import build_figure, daily_table_html
+from health_aggregator.report import EVENT_LANE_COLORS, build_figure, daily_table_html
 
 _POLL_INTERVALS_MIN = {
     "garmin": (15, 30),
@@ -180,12 +181,22 @@ def create_app(db_path: str = "health_data.db") -> Flask:
         )
         conn.close()
 
+        low_mg_dl, high_mg_dl = 70.0, 180.0
+
         chart_html = None
+        glucose_mgdl_json = "[]"
         if not (glucose_df.empty and hr_df.empty and activities.empty):
             merged = merge_all(glucose_df, empty_frame(CARB_COLUMNS), hr_df, activities, empty_frame(INSULIN_COLUMNS), freq="5min")
-            fig = build_figure(merged, events_df=events)
-            fig.update_layout(height=420)
+            fig = build_figure(merged, low_mg_dl=low_mg_dl, high_mg_dl=high_mg_dl, events_df=events)
             chart_html = fig.to_html(include_plotlyjs=True, full_html=False, div_id="day-chart")
+            if "glucose_mg_dl" in merged:
+                # Embedded as a plain JS array so the unit toggle has the real
+                # values to convert from - Plotly's own embedded trace data
+                # isn't always a plain array (large series get a compact
+                # {dtype, bdata} encoding that has no .slice()).
+                glucose_mgdl_json = json.dumps(
+                    [None if pd.isna(v) else v for v in merged["glucose_mg_dl"]]
+                )
 
         hr_summary = None
         if not hr_df.empty:
@@ -196,7 +207,21 @@ def create_app(db_path: str = "health_data.db") -> Flask:
                 "count": len(hr_df),
             }
 
+        glucose_summary = None
+        if not glucose_df.empty:
+            mg = glucose_df["mg_dl"]
+            glucose_summary = {
+                "min": round(mg.min(), 1),
+                "avg": round(mg.mean(), 1),
+                "max": round(mg.max(), 1),
+                "in_range_pct": round(100 * mg.between(low_mg_dl, high_mg_dl).mean(), 1),
+                "count": len(mg),
+            }
+
         calendar_names = sorted(events["calendar_name"].dropna().unique().tolist()) if not events.empty else []
+        calendar_colors = {
+            name: EVENT_LANE_COLORS[(i + 1) % len(EVENT_LANE_COLORS)] for i, name in enumerate(calendar_names)
+        }
         prev_month = (month_start - pd.Timedelta(days=1)).replace(day=1)
         next_month = month_end + pd.Timedelta(days=1)
 
@@ -205,6 +230,12 @@ def create_app(db_path: str = "health_data.db") -> Flask:
             selected_date=selected_date,
             month_start=month_start,
             prev_month=prev_month,
+            low_mg_dl=low_mg_dl,
+            high_mg_dl=high_mg_dl,
+            glucose_mgdl_json=glucose_mgdl_json,
+            glucose_summary=glucose_summary,
+            calendar_colors=calendar_colors,
+            EVENT_LANE_COLORS=EVENT_LANE_COLORS,
             next_month=next_month,
             weeks=calendar_module.Calendar(firstweekday=6).monthdatescalendar(year, month),
             data_dates=data_dates,

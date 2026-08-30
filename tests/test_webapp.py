@@ -202,8 +202,8 @@ def test_day_view_shows_calendar_events_with_toggle_per_calendar(tmp_path, monke
     assert b"Standup" in resp.data
     assert b'toggleCalendar(\'Personal\'' in resp.data
     assert b'toggleCalendar(\'Work\'' in resp.data
-    assert b"toggleTrace('Personal events'" in resp.data
-    assert b"toggleTrace('Work events'" in resp.data
+    assert b"toggleTrace('cal:Personal'" in resp.data
+    assert b"toggleTrace('cal:Work'" in resp.data
 
 
 def test_day_view_renders_chart_with_glucose_and_calendar_markers(tmp_path, monkeypatch):
@@ -239,6 +239,26 @@ def test_day_view_renders_chart_with_glucose_and_calendar_markers(tmp_path, monk
     assert b'id="day-chart"' in resp.data
     assert b"Personal events" in resp.data
     assert b"No CGM, heart rate, or activity data this day" not in resp.data
+    # the unit toggle needs real glucose values embedded as a plain JS array -
+    # Plotly's own embedded trace data isn't always a plain array (see
+    # ORIGINAL_GLUCOSE_MGDL in day.html), so this must never be the "no data" default
+    assert b"var ORIGINAL_GLUCOSE_MGDL = [];" not in resp.data
+    assert b"90.0" in resp.data  # a value from _glucose_df()
+
+
+def test_day_view_glucose_tile_shows_stats_and_unit_selector(tmp_path, monkeypatch):
+    db_path = tmp_path / "health.db"
+    conn = dbmod.connect(str(db_path))
+    dbmod.upsert_glucose(conn, _glucose_df())  # 2026-08-10, values 90-160
+    conn.close()
+
+    client = _client(db_path, monkeypatch)
+    resp = client.get("/day?date=2026-08-10")
+
+    assert resp.status_code == 200
+    assert b"setGlucoseUnit(this.value)" in resp.data
+    assert b"mmol/L" in resp.data
+    assert b"time in range" in resp.data
 
 
 def test_day_view_no_chart_when_only_calendar_events_exist(tmp_path, monkeypatch):

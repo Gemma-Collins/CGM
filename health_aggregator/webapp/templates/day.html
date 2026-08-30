@@ -44,15 +44,18 @@
     {% endif %}
 
     <div class="toggle-row">
-      <label><input type="checkbox" checked onchange="toggleSection('activities-section', this.checked); toggleActivityShapes(this.checked)"> Activities</label>
-      <label><input type="checkbox" checked onchange="toggleSection('heart-rate-section', this.checked); toggleTrace('Heart rate (bpm)', this.checked)"> Heart rate</label>
+      <label><input type="checkbox" checked onchange="toggleSection('activities-section', this.checked); toggleTrace('activities', this.checked)"> Activities</label>
+      <label><input type="checkbox" checked onchange="toggleSection('heart-rate-section', this.checked); toggleTrace('heart_rate', this.checked)"> Heart rate</label>
       {% for name in calendar_names %}
-        <label><input type="checkbox" checked onchange="toggleCalendar('{{ name }}', this.checked); toggleTrace('{{ name }} events', this.checked)"> {{ name }}</label>
+        <label><input type="checkbox" checked onchange="toggleCalendar('{{ name }}', this.checked); toggleTrace('cal:{{ name }}', this.checked)"> {{ name }}</label>
       {% endfor %}
     </div>
 
     <div id="activities-section" class="day-section">
-      <h3>Exercise logged</h3>
+      <div class="section-header">
+        <h3>Exercise logged</h3>
+        <input type="color" class="color-swatch" value="{{ EVENT_LANE_COLORS[0] }}" title="Line color" onchange="setSeriesColor('activities', this.value)">
+      </div>
       {% if activities %}
         <ul class="entry-list">
           {% for a in activities %}
@@ -74,7 +77,10 @@
     </div>
 
     <div id="heart-rate-section" class="day-section">
-      <h3>Heart rate</h3>
+      <div class="section-header">
+        <h3>Heart rate</h3>
+        <input type="color" class="color-swatch" value="#1f77b4" title="Line color" onchange="setSeriesColor('heart_rate', this.value)">
+      </div>
       {% if hr_summary %}
         <div class="stat-row">
           <div class="stat-tile"><span class="stat-value">{{ hr_summary.min }}</span><span class="stat-label">min bpm</span></div>
@@ -89,6 +95,15 @@
 
     <div id="calendar-section" class="day-section">
       <h3>Calendar events</h3>
+      {% if calendar_names %}
+        <div class="tile-controls">
+          {% for name in calendar_names %}
+            <label>{{ name }}
+              <input type="color" class="color-swatch" value="{{ calendar_colors[name] }}" title="{{ name }} color" onchange="setSeriesColor('cal:{{ name }}', this.value)">
+            </label>
+          {% endfor %}
+        </div>
+      {% endif %}
       {% if events %}
         <ul class="entry-list">
           {% for e in events %}
@@ -103,10 +118,41 @@
         <p class="empty-state">No calendar events this day.</p>
       {% endif %}
     </div>
+
+    <div id="glucose-section" class="day-section">
+      <div class="section-header">
+        <h3>Glucose</h3>
+        <input type="color" class="color-swatch" value="#d62728" title="Line color" onchange="setSeriesColor('glucose', this.value)">
+      </div>
+      {% if glucose_summary %}
+        <div class="tile-controls">
+          <label>Units
+            <select onchange="setGlucoseUnit(this.value)">
+              <option value="mgdl">mg/dL</option>
+              <option value="mmol">mmol/L</option>
+            </select>
+          </label>
+        </div>
+        <div class="stat-row">
+          <div class="stat-tile"><span class="stat-value" id="glucose-min-stat" data-mgdl="{{ glucose_summary.min }}">{{ glucose_summary.min }}</span><span class="stat-label" id="glucose-min-label">min mg/dL</span></div>
+          <div class="stat-tile"><span class="stat-value" id="glucose-avg-stat" data-mgdl="{{ glucose_summary.avg }}">{{ glucose_summary.avg }}</span><span class="stat-label" id="glucose-avg-label">avg mg/dL</span></div>
+          <div class="stat-tile"><span class="stat-value" id="glucose-max-stat" data-mgdl="{{ glucose_summary.max }}">{{ glucose_summary.max }}</span><span class="stat-label" id="glucose-max-label">max mg/dL</span></div>
+          <div class="stat-tile"><span class="stat-value">{{ glucose_summary.in_range_pct }}%</span><span class="stat-label">time in range</span></div>
+          <div class="stat-tile"><span class="stat-value">{{ glucose_summary.count }}</span><span class="stat-label">readings</span></div>
+        </div>
+      {% else %}
+        <p class="empty-state">No glucose data this day.</p>
+      {% endif %}
+    </div>
   </section>
 </div>
 
 <script>
+var LOW_MGDL = {{ low_mg_dl }};
+var HIGH_MGDL = {{ high_mg_dl }};
+var MGDL_PER_MMOL = 18.0182;
+var ORIGINAL_GLUCOSE_MGDL = {{ glucose_mgdl_json | safe }};
+
 function toggleSection(id, show) {
   document.getElementById(id).hidden = !show;
 }
@@ -117,29 +163,51 @@ function toggleCalendar(name, show) {
   });
 }
 
-function toggleTrace(traceName, show) {
+function _findTraceIndex(metaKey) {
   var gd = document.getElementById('day-chart');
-  if (!gd || !gd.data) return;
+  if (!gd || !gd.data) return null;
   for (var i = 0; i < gd.data.length; i++) {
-    if (gd.data[i].name === traceName) {
-      Plotly.restyle('day-chart', { visible: show }, [i]);
-      return;
-    }
+    if (gd.data[i].meta === metaKey) return i;
   }
+  return null;
 }
 
-var _originalActivityShapes = null;
-var _originalActivityAnnotations = null;
-function toggleActivityShapes(show) {
+function toggleTrace(metaKey, show) {
+  var idx = _findTraceIndex(metaKey);
+  if (idx !== null) Plotly.restyle('day-chart', { visible: show }, [idx]);
+}
+
+function setSeriesColor(metaKey, color) {
+  var idx = _findTraceIndex(metaKey);
+  if (idx !== null) Plotly.restyle('day-chart', { 'line.color': color }, [idx]);
+}
+
+function setGlucoseUnit(unit) {
+  var idx = _findTraceIndex('glucose');
+  if (idx === null) return;
+
+  var toMmol = function (v) { return v == null ? null : Math.round((v / MGDL_PER_MMOL) * 10) / 10; };
+  var newY = unit === 'mmol' ? ORIGINAL_GLUCOSE_MGDL.map(toMmol) : ORIGINAL_GLUCOSE_MGDL;
+  var newName = unit === 'mmol' ? 'Glucose (mmol/L)' : 'Glucose (mg/dL)';
+  Plotly.restyle('day-chart', { y: [newY], name: [newName] }, [idx]);
+
+  var axisTitle = unit === 'mmol' ? 'mmol/L' : 'mg/dL';
+  Plotly.relayout('day-chart', { 'yaxis.title': axisTitle });
+
   var gd = document.getElementById('day-chart');
-  if (!gd || !gd.layout) return;
-  if (_originalActivityShapes === null) {
-    _originalActivityShapes = (gd.layout.shapes || []).slice();
-    _originalActivityAnnotations = (gd.layout.annotations || []).slice();
+  if (gd.layout.shapes && gd.layout.shapes.length) {
+    var low = unit === 'mmol' ? toMmol(LOW_MGDL) : LOW_MGDL;
+    var high = unit === 'mmol' ? toMmol(HIGH_MGDL) : HIGH_MGDL;
+    Plotly.relayout('day-chart', { 'shapes[0].y0': low, 'shapes[0].y1': high });
   }
-  Plotly.relayout('day-chart', {
-    shapes: show ? _originalActivityShapes : [],
-    annotations: show ? _originalActivityAnnotations : [],
+
+  ['min', 'avg', 'max'].forEach(function (key) {
+    var stat = document.getElementById('glucose-' + key + '-stat');
+    var label = document.getElementById('glucose-' + key + '-label');
+    if (!stat) return;
+    var mgdl = parseFloat(stat.getAttribute('data-mgdl'));
+    stat.textContent = unit === 'mmol' ? toMmol(mgdl) : mgdl;
+    label.textContent = key + ' ' + axisTitle;
   });
 }
 </script>
