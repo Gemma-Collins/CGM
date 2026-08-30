@@ -12,6 +12,7 @@ import pandas as pd
 
 from health_aggregator.models import (
     ACTIVITY_COLUMNS,
+    CALENDAR_COLUMNS,
     CARB_COLUMNS,
     GLUCOSE_COLUMNS,
     HEART_RATE_COLUMNS,
@@ -60,6 +61,14 @@ CREATE TABLE IF NOT EXISTS insulin_doses (
     dose_type TEXT,
     source TEXT NOT NULL,
     UNIQUE(timestamp, dose_type, source)
+);
+CREATE TABLE IF NOT EXISTS calendar_events (
+    "start" TEXT NOT NULL,
+    "end" TEXT NOT NULL,
+    title TEXT,
+    event_type TEXT,
+    source TEXT NOT NULL,
+    UNIQUE("start", title, source)
 );
 CREATE TABLE IF NOT EXISTS poll_log (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -128,6 +137,19 @@ def upsert_activities(conn: sqlite3.Connection, df: pd.DataFrame) -> int:
 def upsert_insulin(conn: sqlite3.Connection, df: pd.DataFrame) -> int:
     df = ensure_schema(df, INSULIN_COLUMNS).assign(timestamp=lambda d: d["timestamp"].astype(str))
     return _upsert(conn, "insulin_doses", df, list(INSULIN_COLUMNS))
+
+
+def upsert_calendar_events(conn: sqlite3.Connection, df: pd.DataFrame) -> int:
+    df = ensure_schema(df, CALENDAR_COLUMNS).assign(
+        start=lambda d: d["start"].astype(str), end=lambda d: d["end"].astype(str)
+    )
+    return _upsert(conn, "calendar_events", df, list(CALENDAR_COLUMNS))
+
+
+def load_calendar_events(conn: sqlite3.Connection, start=None, end=None) -> pd.DataFrame:
+    where, params = _where_range("start", start, end)
+    df = pd.read_sql_query(f"SELECT * FROM calendar_events{where}", conn, params=params)
+    return ensure_schema(df, CALENDAR_COLUMNS) if not df.empty else empty_frame(CALENDAR_COLUMNS)
 
 
 def load_glucose(conn: sqlite3.Connection, start=None, end=None) -> pd.DataFrame:

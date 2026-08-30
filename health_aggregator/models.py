@@ -48,6 +48,14 @@ INSULIN_COLUMNS = {
     "source": "object",  # "nightscout_live"
 }
 
+CALENDAR_COLUMNS = {
+    "start": "datetime64[ns]",
+    "end": "datetime64[ns]",
+    "title": "object",
+    "event_type": "object",  # "activity" | "travel" | "other", from keyword classification
+    "source": "object",  # "google_calendar"
+}
+
 
 def empty_frame(columns: dict) -> pd.DataFrame:
     """Build an empty, correctly-typed DataFrame for one of the schemas above."""

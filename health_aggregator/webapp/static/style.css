@@ -143,3 +143,12 @@ td:first-child, th:first-child { text-align: left; }
   color: #555;
   padding: 2rem 0;
 }
+
+.code-block {
+  background: #1a2b26;
+  color: #cfe8df;
+  padding: 0.7rem 1rem;
+  border-radius: 4px;
+  font-size: 0.88rem;
+  overflow-x: auto;
+}

@@ -97,6 +97,66 @@ def test_disconnect_garmin_removes_credentials(tmp_path, monkeypatch):
     assert credmod.load_credentials(conn, "garmin", key_path=key_path) is None
 
 
+def test_connections_page_shows_calendar_cli_instructions_when_not_connected(tmp_path, monkeypatch):
+    monkeypatch.setattr("health_aggregator.webapp.app.calendar_live.DEFAULT_TOKEN_PATH", str(tmp_path / "no_token.json"))
+    client = _client(tmp_path / "health.db", monkeypatch)
+    resp = client.get("/connections")
+    assert b"connect-calendar" in resp.data
+
+
+def test_connections_page_shows_calendar_connected_when_token_exists(tmp_path, monkeypatch):
+    token_path = tmp_path / "token.json"
+    token_path.write_text("{}")
+    monkeypatch.setattr("health_aggregator.webapp.app.calendar_live.DEFAULT_TOKEN_PATH", str(token_path))
+
+    client = _client(tmp_path / "health.db", monkeypatch)
+    resp = client.get("/connections")
+
+    assert b"Status: connected" in resp.data
+
+
+def test_upload_nutrition_pdf_success(tmp_path, monkeypatch):
+    import io
+
+    import pandas as pd
+
+    from health_aggregator.models import CARB_COLUMNS, ensure_schema
+
+    fake_df = ensure_schema(
+        pd.DataFrame(
+            {
+                "timestamp": pd.to_datetime(["2026-08-15 12:00"]),
+                "food_name": ["Salad"],
+                "carbs_g": [12.0],
+                "calories_kcal": [320.0],
+                "source": ["nutrition_pdf"],
+            }
+        ),
+        CARB_COLUMNS,
+    )
+    monkeypatch.setattr("health_aggregator.webapp.app.nutrition_pdf.parse_pdf", lambda path, date=None: fake_df)
+
+    db_path = tmp_path / "health.db"
+    client = _client(db_path, monkeypatch)
+    resp = client.post(
+        "/uploads/nutrition-pdf",
+        data={"pdf_file": (io.BytesIO(b"%PDF-1.4 fake"), "meal.pdf")},
+        content_type="multipart/form-data",
+        follow_redirects=True,
+    )
+
+    assert resp.status_code == 200
+    assert b"Extracted 1 new nutrition entry" in resp.data
+    conn = dbmod.connect(str(db_path))
+    assert len(dbmod.load_carbs(conn)) == 1
+
+
+def test_upload_nutrition_pdf_without_file_shows_error(tmp_path, monkeypatch):
+    client = _client(tmp_path / "health.db", monkeypatch)
+    resp = client.post("/uploads/nutrition-pdf", data={}, content_type="multipart/form-data", follow_redirects=True)
+    assert b"No PDF selected" in resp.data
+
+
 def test_connect_nightscout_success_saves_credentials(tmp_path, monkeypatch):
     db_path = tmp_path / "health.db"
     monkeypatch.setattr(

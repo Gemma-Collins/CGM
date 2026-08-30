@@ -1,24 +1,30 @@
 # Health Data Aggregator
 
-Merges four data sources into one HTML dashboard: a glucose curve overlaid
-with carb intake, insulin doses, and heart rate, with activity periods
-shaded and a daily time-in-range table.
+Merges data from Garmin, Cronometer, CGM, Google Calendar, and PDF
+nutrition sheets into one local database, with an HTML dashboard: a
+glucose curve overlaid with carb intake, insulin doses, and heart rate,
+activity periods shaded, and a daily time-in-range table.
 
 - **Activities & heart rate** — Garmin vivoactive, via `.fit` files exported
-  from Garmin Connect
-- **Carbs** — Cronometer, via its CSV export
+  from Garmin Connect, or live via `poll`/`schedule`
+- **Carbs** — Cronometer CSV export, or a PDF nutrition sheet/meal plan
+  (see "Nutrition PDF upload" below)
 - **Glucose (CGM)** — FreeStyle Libre 2 via LibreView, or xDrip+/MiaoMiao via
-  a Nightscout CSV export
+  a Nightscout CSV export or live via `poll-cgm`/`schedule-cgm`
 - **Insulin doses** — from Nightscout's treatment log (live only, via
   `poll-cgm`/`schedule-cgm` alongside glucose — see "Live tracking" below).
   Only picks up entries with a discrete dose amount (bolus-style), however
   they're logged there; temp-basal rate/duration entries (pump-specific)
   aren't parsed. There's no file-import path for this yet.
+- **Calendar** — Google Calendar events, live via `poll-calendar`/
+  `schedule-calendar`, classified by keyword (gym/workout -> "activity",
+  flight/travel -> "travel", else "other"). Stored, but not yet drawn on
+  the dashboard chart - see "Google Calendar" below.
 
 Cronometer always works from a file export, since it has no public API.
-Garmin and CGM (Nightscout) both also have a live path (see "Live tracking"
-below) that polls the source directly instead of you exporting a file each
-time.
+Garmin, CGM (Nightscout), and Calendar all also have a live path (see
+"Live tracking" below) that polls the source directly instead of you
+exporting a file each time.
 
 ## Setup
 
@@ -117,6 +123,13 @@ reachable from other devices or the internet). Turning this into something
 you can share a link to with an educator, e.g. embedded on a website, is a
 separate next step — the local version is the place to start.
 
+Google Calendar also shows up on Connections, but read-only — its OAuth
+consent needs a browser popup that doesn't fit a web form, so connect it
+once from a terminal (`connect-calendar`, see below) and it then polls
+automatically here just like Garmin/Nightscout. The Connections page also
+has a **Nutrition PDF** upload form (a one-off action, not a persistent
+connection - see "Nutrition PDF upload" below).
+
 Cronometer still has no live path here either — keep using
 `ingest --cronometer-csv` from the command line for it.
 
@@ -191,6 +204,61 @@ cadence, so `schedule-cgm` defaults to a tighter interval than Garmin's
 `schedule` — and since it's your own server rather than an unofficial
 client, there's no need to be as conservative about polling frequency.
 
+### Google Calendar
+
+Google's OAuth consent needs an interactive browser popup, which doesn't
+fit a background poll loop - so connecting is a one-time step, separate
+from polling:
+
+1. In [Google Cloud Console](https://console.cloud.google.com/apis/credentials),
+   enable the Calendar API, then create an OAuth client ID of type
+   **Desktop app**, and download its JSON.
+2. Save it to `~/.health_aggregator/google_calendar_credentials.json` (or
+   pass `--client-secrets path/to/file.json` below).
+3. Connect once - this opens a browser for you to sign in and grant
+   read-only calendar access, then caches a token so this never needs to
+   happen again (until you revoke access):
+
+```bash
+python -m health_aggregator.cli connect-calendar
+```
+
+Then, same pattern as the other live sources:
+
+```bash
+python -m health_aggregator.cli poll-calendar       # one-off pull
+python -m health_aggregator.cli schedule-calendar    # runs forever, 30-60 min jittered by default
+```
+
+Events are classified by keyword into `activity` (gym, workout, run,
+ride, swim, yoga, hike, ...), `travel` (flight, trip, airport, ...), or
+`other`, and stored in a `calendar_events` table - not yet drawn on the
+dashboard chart itself (planned next).
+
+### Nutrition PDF upload
+
+If nutrition info only exists as a PDF (a dietitian's handout, a meal
+plan, a scanned nutrition facts sheet) rather than a Cronometer export,
+`ingest --nutrition-pdf` extracts labeled carbs/calories from it - lines
+like "Carbs: 45g" or "Total Carbohydrate 45 g", "Calories: 210" or
+"Energy 210" - using the nearest heading-like line above each as the food
+name. It's a best-effort text pattern match, not a general PDF-table
+parser, so check the extracted rows against the source document,
+especially for multi-column layouts.
+
+```bash
+python -m health_aggregator.cli ingest --db health_data.db \
+  --nutrition-pdf path/to/meal-plan.pdf --pdf-date 2026-08-15
+```
+
+`--pdf-date` matters since PDFs rarely carry a reliable "when eaten"
+timestamp - it defaults to noon today if omitted. Extracted entries land
+in the same carbs table as Cronometer's, tagged `source=nutrition_pdf` so
+they can still be told apart.
+
+The web UI's Connections page has an upload form for this too, since it's
+a one-off action rather than a persistent connection.
+
 ### Checking it's running
 
 ```bash
@@ -205,13 +273,16 @@ reading logs.
 ## How it works
 
 Each source is parsed into a small pandas schema (see `models.py`):
-glucose readings, carb entries, heart-rate samples, activity summaries, and
-insulin doses. `ingest` upserts those into SQLite tables (`db.py`) keyed so
-re-importing the same reading is a no-op. `report` loads everything (or a
-date range) back out, and `merge.py` resamples it onto a common time grid
-(glucose/HR averaged per bucket, carbs/insulin summed per bucket), flagging
-which buckets fall inside a Garmin activity. `report.py` renders that
-merged timeline as a Plotly chart plus a per-day summary table.
+glucose readings, carb entries, heart-rate samples, activity summaries,
+insulin doses, and calendar events. `ingest` upserts those into SQLite
+tables (`db.py`) keyed so re-importing the same reading is a no-op.
+`report` loads everything (or a date range) back out, and `merge.py`
+resamples it onto a common time grid (glucose/HR averaged per bucket,
+carbs/insulin summed per bucket), flagging which buckets fall inside a
+Garmin activity. `report.py` renders that merged timeline as a Plotly
+chart plus a per-day summary table. Calendar events are stored and
+queryable via `db.load_calendar_events` but aren't in that merge/chart yet
+— per the "functionality first, visualize later" scoping of this feature.
 
 `credentials.py` encrypts and stores Garmin/Nightscout credentials for the
 web UI (`webapp/`), which is a thin Flask layer over the same `db.py`,

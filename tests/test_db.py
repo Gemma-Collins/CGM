@@ -80,6 +80,33 @@ def test_latest_timestamp_returns_max_for_that_source_only(tmp_path):
     )
 
 
+def test_upsert_and_load_calendar_events(tmp_path):
+    from health_aggregator.models import CALENDAR_COLUMNS, ensure_schema
+
+    conn = dbmod.connect(str(tmp_path / "health.db"))
+    df = ensure_schema(
+        pd.DataFrame(
+            {
+                "start": pd.to_datetime(["2026-08-10 07:00"]),
+                "end": pd.to_datetime(["2026-08-10 08:00"]),
+                "title": ["Gym"],
+                "event_type": ["activity"],
+                "source": ["google_calendar"],
+            }
+        ),
+        CALENDAR_COLUMNS,
+    )
+
+    n = dbmod.upsert_calendar_events(conn, df)
+    assert n == 1
+    loaded = dbmod.load_calendar_events(conn)
+    assert len(loaded) == 1
+    assert loaded.iloc[0]["title"] == "Gym"
+
+    second = dbmod.upsert_calendar_events(conn, df)
+    assert second == 0
+
+
 def test_record_and_load_poll_log(tmp_path):
     conn = dbmod.connect(str(tmp_path / "health.db"))
     started = pd.Timestamp("2026-08-10 08:00:00")

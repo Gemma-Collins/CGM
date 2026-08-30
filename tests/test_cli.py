@@ -117,6 +117,90 @@ def test_cli_poll_cgm_failure_records_heartbeat_and_exits_nonzero(tmp_path, monk
     assert "nightscout_live: error" in status.output
 
 
+def test_cli_poll_calendar_success_records_heartbeat(tmp_path, monkeypatch):
+    db_path = tmp_path / "health.db"
+    monkeypatch.setattr(
+        "health_aggregator.cli.calendar_live.poll_once",
+        lambda conn, token_path, days_back, days_ahead: {"calendar_events": 3},
+    )
+    runner = CliRunner()
+    result = runner.invoke(main, ["poll-calendar", "--db", str(db_path)])
+    assert result.exit_code == 0, result.output
+    assert "events +3" in result.output
+
+    status = runner.invoke(main, ["status", "--db", str(db_path)])
+    assert "google_calendar: success" in status.output
+    assert "3 row(s) added" in status.output
+
+
+def test_cli_poll_calendar_failure_records_heartbeat_and_exits_nonzero(tmp_path, monkeypatch):
+    db_path = tmp_path / "health.db"
+
+    def _boom(conn, token_path, days_back, days_ahead):
+        raise RuntimeError("Google Calendar isn't connected yet")
+
+    monkeypatch.setattr("health_aggregator.cli.calendar_live.poll_once", _boom)
+    runner = CliRunner()
+    result = runner.invoke(main, ["poll-calendar", "--db", str(db_path)])
+    assert result.exit_code != 0
+
+    status = runner.invoke(main, ["status", "--db", str(db_path)])
+    assert "google_calendar: error" in status.output
+
+
+def test_cli_connect_calendar_success(tmp_path, monkeypatch):
+    monkeypatch.setattr("health_aggregator.cli.calendar_live.connect_interactive", lambda client_secrets_path, token_path: None)
+    runner = CliRunner()
+    result = runner.invoke(main, ["connect-calendar", "--token-path", str(tmp_path / "token.json")])
+    assert result.exit_code == 0, result.output
+    assert "Google Calendar connected" in result.output
+
+
+def test_cli_connect_calendar_failure(monkeypatch):
+    def _boom(client_secrets_path, token_path):
+        raise FileNotFoundError("no client secrets")
+
+    monkeypatch.setattr("health_aggregator.cli.calendar_live.connect_interactive", _boom)
+    runner = CliRunner()
+    result = runner.invoke(main, ["connect-calendar"])
+    assert result.exit_code != 0
+
+
+def test_cli_status_shows_calendar_events_count(tmp_path):
+    db_path = tmp_path / "health.db"
+    runner = CliRunner()
+    result = runner.invoke(main, ["status", "--db", str(db_path)])
+    assert "calendar events: 0" in result.output
+
+
+def test_cli_ingest_nutrition_pdf(tmp_path, monkeypatch):
+    db_path = tmp_path / "health.db"
+    fake_pdf = tmp_path / "nutrition.pdf"
+    fake_pdf.write_bytes(b"%PDF-1.4 fake")
+
+    import pandas as pd
+    from health_aggregator.models import CARB_COLUMNS, ensure_schema
+
+    fake_df = ensure_schema(
+        pd.DataFrame(
+            {
+                "timestamp": pd.to_datetime(["2026-08-15 12:00"]),
+                "food_name": ["Salad"],
+                "carbs_g": [12.0],
+                "calories_kcal": [320.0],
+                "source": ["nutrition_pdf"],
+            }
+        ),
+        CARB_COLUMNS,
+    )
+    monkeypatch.setattr("health_aggregator.cli.nutrition_pdf.parse_pdf", lambda path, date=None: fake_df)
+
+    runner = CliRunner()
+    result = runner.invoke(main, ["ingest", "--db", str(db_path), "--nutrition-pdf", str(fake_pdf)])
+    assert result.exit_code == 0, result.output
+    assert "nutrition pdf: 1 new row(s)" in result.output
+
+
 def test_cli_ingest_twice_does_not_duplicate(tmp_path):
     db_path = tmp_path / "health.db"
     runner = CliRunner()

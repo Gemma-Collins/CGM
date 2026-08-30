@@ -10,6 +10,7 @@ by hand.
 """
 
 import os
+import tempfile
 import threading
 
 from flask import Flask, flash, redirect, render_template, request, url_for
@@ -17,13 +18,15 @@ from flask import Flask, flash, redirect, render_template, request, url_for
 from health_aggregator import credentials as credmod
 from health_aggregator import db as dbmod
 from health_aggregator import scheduler
-from health_aggregator.live import garmin_live, nightscout_live
+from health_aggregator.importers import nutrition_pdf
+from health_aggregator.live import calendar_live, garmin_live, nightscout_live
 from health_aggregator.merge import daily_summary, merge_all
 from health_aggregator.report import build_figure, daily_table_html
 
 _POLL_INTERVALS_MIN = {
     "garmin": (15, 30),
     "nightscout": (5, 10),
+    "google_calendar": (30, 60),
 }
 
 _active_threads: dict = {}
@@ -33,6 +36,7 @@ def create_app(db_path: str = "health_data.db") -> Flask:
     app = Flask(__name__)
     app.secret_key = os.urandom(24)
     app.config["DB_PATH"] = db_path
+    app.config["MAX_CONTENT_LENGTH"] = 20 * 1024 * 1024  # 20MB, generous for a PDF upload
 
     def get_conn():
         return dbmod.connect(app.config["DB_PATH"])
@@ -65,7 +69,36 @@ def create_app(db_path: str = "health_data.db") -> Flask:
         finally:
             conn.close()
 
-    _poll_fns = {"garmin": _garmin_poll, "nightscout": _nightscout_poll}
+    def _calendar_poll():
+        conn = get_conn()
+        try:
+            creds = credmod.load_credentials(conn, "google_calendar")
+            if creds is None:
+                return
+            calendar_live.poll_once(conn, token_path=creds["token_path"])
+            credmod.mark_status(conn, "google_calendar", "connected")
+        except Exception:
+            credmod.mark_status(conn, "google_calendar", "error")
+        finally:
+            conn.close()
+
+    _poll_fns = {"garmin": _garmin_poll, "nightscout": _nightscout_poll, "google_calendar": _calendar_poll}
+
+    def _sync_calendar_connection_marker() -> None:
+        """The Calendar OAuth token isn't a secret we hold (Google's token
+        file is), so this just mirrors "does that file exist" into the
+        connections table for the status page and the background-poll
+        resume logic - not a real credential."""
+        conn = get_conn()
+        try:
+            token_path = calendar_live.DEFAULT_TOKEN_PATH
+            if os.path.exists(token_path):
+                if credmod.load_credentials(conn, "google_calendar") is None:
+                    credmod.save_credentials(conn, "google_calendar", {"token_path": token_path})
+            else:
+                credmod.delete_credentials(conn, "google_calendar")
+        finally:
+            conn.close()
 
     def _ensure_background_poll(source: str) -> None:
         existing = _active_threads.get(source)
@@ -81,6 +114,7 @@ def create_app(db_path: str = "health_data.db") -> Flask:
         _active_threads[source] = thread
 
     # Resume background polling for anything already connected from a past run.
+    _sync_calendar_connection_marker()
     conn = get_conn()
     for row in credmod.list_connections(conn):
         _ensure_background_poll(row["source"])
@@ -116,10 +150,15 @@ def create_app(db_path: str = "health_data.db") -> Flask:
 
     @app.route("/connections")
     def connections():
+        _sync_calendar_connection_marker()
         conn = get_conn()
         statuses = {row["source"]: row for row in credmod.list_connections(conn)}
         conn.close()
-        return render_template("connections.html", statuses=statuses)
+        return render_template(
+            "connections.html",
+            statuses=statuses,
+            calendar_client_secrets_path=calendar_live.DEFAULT_CLIENT_SECRETS_PATH,
+        )
 
     @app.route("/connections/garmin/connect", methods=["POST"])
     def connect_garmin():
@@ -168,6 +207,34 @@ def create_app(db_path: str = "health_data.db") -> Flask:
         credmod.delete_credentials(conn, "nightscout")
         conn.close()
         flash("CGM disconnected.", "success")
+        return redirect(url_for("connections"))
+
+    @app.route("/uploads/nutrition-pdf", methods=["POST"])
+    def upload_nutrition_pdf():
+        file = request.files.get("pdf_file")
+        date = request.form.get("date", "").strip() or None
+        if file is None or file.filename == "":
+            flash("No PDF selected.", "error")
+            return redirect(url_for("connections"))
+
+        conn = get_conn()
+        tmp_path = None
+        try:
+            with tempfile.NamedTemporaryFile(suffix=".pdf", delete=False) as tmp:
+                file.save(tmp.name)
+                tmp_path = tmp.name
+            carb_df = nutrition_pdf.parse_pdf(tmp_path, date=date)
+            n = dbmod.upsert_carbs(conn, carb_df)
+            if carb_df.empty:
+                flash(f"Couldn't find any labeled carbs/calories in {file.filename}.", "error")
+            else:
+                flash(f"Extracted {n} new nutrition entr{'y' if n == 1 else 'ies'} from {file.filename}.", "success")
+        except Exception as exc:
+            flash(f"Couldn't process {file.filename}: {exc}", "error")
+        finally:
+            conn.close()
+            if tmp_path and os.path.exists(tmp_path):
+                os.remove(tmp_path)
         return redirect(url_for("connections"))
 
     return app

@@ -53,6 +53,41 @@ anything by hand again.</p>
   {% endif %}
 </section>
 
+<section class="connection-card">
+  <h2>Google Calendar</h2>
+  {% if statuses.google_calendar %}
+    <p class="status status-{{ statuses.google_calendar.last_status }}">
+      Status: {{ statuses.google_calendar.last_status }} · connected {{ statuses.google_calendar.connected_at }}
+    </p>
+    <p class="lede">Events poll automatically in the background. To disconnect, revoke access at
+      <a href="https://myaccount.google.com/permissions" target="_blank" rel="noopener">myaccount.google.com/permissions</a>
+      and delete the cached token file.</p>
+  {% else %}
+    <p class="lede">Calendar's OAuth consent needs a browser popup, which doesn't fit a web form -
+      connect it once from a terminal instead, then it polls automatically here just like the others:</p>
+    <pre class="code-block">python -m health_aggregator.cli connect-calendar</pre>
+    <p class="lede">Needs an OAuth client JSON from Google Cloud Console (Calendar API enabled,
+      "Desktop app" credential type) saved to<br><code>{{ calendar_client_secrets_path }}</code>
+      (or pass <code>--client-secrets path/to/file.json</code>).</p>
+  {% endif %}
+</section>
+
+<section class="connection-card">
+  <h2>Nutrition PDF</h2>
+  <p class="lede">A one-off upload, not a live connection - extracts labeled carbs/calories
+    (e.g. "Carbs: 45g", "Calories: 210") from a PDF nutrition sheet, meal plan, or dietitian
+    handout, using the nearest heading line above each as the food name.</p>
+  <form method="post" action="{{ url_for('upload_nutrition_pdf') }}" enctype="multipart/form-data">
+    <label>PDF file
+      <input type="file" name="pdf_file" accept="application/pdf" required>
+    </label>
+    <label>Date eaten (optional - defaults to noon today)
+      <input type="date" name="date">
+    </label>
+    <button type="submit" class="btn">Upload &amp; extract</button>
+  </form>
+</section>
+
 <p class="lede">Cronometer has no live connection - it's always a file import via
 <code>ingest --cronometer-csv</code> from the command line.</p>
 {% endblock %}

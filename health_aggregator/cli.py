@@ -15,8 +15,8 @@ import pandas as pd
 
 from health_aggregator import db as dbmod
 from health_aggregator import scheduler
-from health_aggregator.importers import cgm, cronometer, garmin
-from health_aggregator.live import garmin_live, nightscout_live
+from health_aggregator.importers import cgm, cronometer, garmin, nutrition_pdf
+from health_aggregator.live import calendar_live, garmin_live, nightscout_live
 from health_aggregator.merge import daily_summary, merge_all
 from health_aggregator.report import build_report
 
@@ -38,7 +38,9 @@ def main():
 @click.option("--cronometer-csv", type=click.Path(exists=True, dir_okay=False), default=None, help="Cronometer export CSV (Servings or Daily Summary).")
 @click.option("--cgm-csv", type=click.Path(exists=True, dir_okay=False), default=None, help="CGM export CSV (LibreView, or Nightscout/xDrip+).")
 @click.option("--cgm-format", type=click.Choice(["auto", "libreview", "nightscout", "generic"]), default="auto", help="Force the CGM CSV format instead of auto-detecting.")
-def ingest(db_path, garmin_dir, garmin_csv, cronometer_csv, cgm_csv, cgm_format):
+@click.option("--nutrition-pdf", "nutrition_pdf_path", type=click.Path(exists=True, dir_okay=False), default=None, help="A PDF (nutrition facts sheet, meal plan, dietitian handout) to extract carbs/calories from.")
+@click.option("--pdf-date", default=None, help="Date to timestamp --nutrition-pdf entries with (e.g. 2026-08-15), since PDFs rarely carry a reliable one. Defaults to noon today.")
+def ingest(db_path, garmin_dir, garmin_csv, cronometer_csv, cgm_csv, cgm_format, nutrition_pdf_path, pdf_date):
     """Parse export files and upsert them into the local database (re-running with
     overlapping files is safe - duplicates are skipped)."""
     conn = dbmod.connect(db_path)
@@ -61,10 +63,14 @@ def ingest(db_path, garmin_dir, garmin_csv, cronometer_csv, cgm_csv, cgm_format)
         glucose_df = cgm.parse_csv(cgm_csv, format_hint=hint)
         counts["glucose"] = dbmod.upsert_glucose(conn, glucose_df)
 
+    if nutrition_pdf_path:
+        pdf_carb_df = nutrition_pdf.parse_pdf(nutrition_pdf_path, date=pdf_date)
+        counts["nutrition pdf"] = dbmod.upsert_carbs(conn, pdf_carb_df)
+
     conn.close()
 
     if not counts:
-        raise click.UsageError("provide at least one of --garmin-dir/--garmin-csv, --cronometer-csv, --cgm-csv")
+        raise click.UsageError("provide at least one of --garmin-dir/--garmin-csv, --cronometer-csv, --cgm-csv, --nutrition-pdf")
 
     for name, n in counts.items():
         click.echo(f"{name}: {n} new row(s) added to {db_path}")
@@ -207,6 +213,75 @@ def schedule_cgm(db_path, nightscout_url, count, min_minutes, max_minutes):
     scheduler.run_forever(do_poll, min_minutes * 60, max_minutes * 60)
 
 
+@main.command("connect-calendar")
+@click.option("--client-secrets", default=calendar_live.DEFAULT_CLIENT_SECRETS_PATH, show_default=True, help="OAuth client JSON downloaded from Google Cloud Console (Calendar API enabled, 'Desktop app' credential type).")
+@click.option("--token-path", default=calendar_live.DEFAULT_TOKEN_PATH, show_default=True, help="Where to cache the resulting access token.")
+def connect_calendar(client_secrets, token_path):
+    """One-time setup: opens a browser for Google's consent screen and caches
+    a token, so poll-calendar/schedule-calendar never need this again."""
+    try:
+        calendar_live.connect_interactive(client_secrets_path=client_secrets, token_path=token_path)
+    except Exception as exc:
+        raise click.ClickException(f"calendar connect failed: {exc}")
+    click.echo(f"Google Calendar connected; token cached at {token_path}")
+
+
+def _run_calendar_live_poll(db_path: str, token_path: str, days_back: int, days_ahead: int) -> dict:
+    """One live-Calendar poll: fetch, upsert, and record a poll_log heartbeat row."""
+    conn = dbmod.connect(db_path)
+    started = pd.Timestamp.now()
+    try:
+        counts = calendar_live.poll_once(conn, token_path=token_path, days_back=days_back, days_ahead=days_ahead)
+        dbmod.record_poll(
+            conn, "google_calendar", started, pd.Timestamp.now(), "success",
+            rows_added=sum(counts.values()),
+        )
+        return counts
+    except Exception as exc:
+        dbmod.record_poll(
+            conn, "google_calendar", started, pd.Timestamp.now(), "error",
+            rows_added=0, error_message=str(exc),
+        )
+        raise
+    finally:
+        conn.close()
+
+
+@main.command("poll-calendar")
+@_DB_OPTION
+@click.option("--token-path", default=calendar_live.DEFAULT_TOKEN_PATH, show_default=True, help="Where the cached Calendar token is stored.")
+@click.option("--days-back", default=1, show_default=True, help="How many days back to fetch events from.")
+@click.option("--days-ahead", default=7, show_default=True, help="How many days ahead to fetch events for.")
+def poll_calendar(db_path, token_path, days_back, days_ahead):
+    """One-off Google Calendar fetch. Run 'connect-calendar' first."""
+    try:
+        counts = _run_calendar_live_poll(db_path, token_path, days_back, days_ahead)
+    except Exception as exc:
+        raise click.ClickException(f"calendar poll failed: {exc}")
+    click.echo(f"google_calendar: events +{counts['calendar_events']}")
+
+
+@main.command("schedule-calendar")
+@_DB_OPTION
+@click.option("--token-path", default=calendar_live.DEFAULT_TOKEN_PATH, show_default=True)
+@click.option("--days-back", default=1, show_default=True)
+@click.option("--days-ahead", default=7, show_default=True)
+@click.option("--min-minutes", default=30.0, show_default=True, help="Calendars change rarely, so this polls less often than Garmin/CGM by default.")
+@click.option("--max-minutes", default=60.0, show_default=True)
+def schedule_calendar(db_path, token_path, days_back, days_ahead, min_minutes, max_minutes):
+    """Run the Calendar poll forever, on a jittered interval, until you stop it (Ctrl+C)."""
+
+    def do_poll():
+        try:
+            counts = _run_calendar_live_poll(db_path, token_path, days_back, days_ahead)
+            click.echo(f"{pd.Timestamp.now()}: poll ok, events +{counts['calendar_events']}")
+        except Exception as exc:
+            click.echo(f"{pd.Timestamp.now()}: poll FAILED: {exc}")
+
+    click.echo(f"polling every {min_minutes}-{max_minutes} min (jittered); Ctrl+C to stop")
+    scheduler.run_forever(do_poll, min_minutes * 60, max_minutes * 60)
+
+
 @main.command()
 @_DB_OPTION
 def status(db_path):
@@ -233,6 +308,7 @@ def status(db_path):
     click.echo(f"  heart rate: {len(dbmod.load_heart_rate(conn))}")
     click.echo(f"  activities: {len(dbmod.load_activities(conn))}")
     click.echo(f"  insulin doses: {len(dbmod.load_insulin(conn))}")
+    click.echo(f"  calendar events: {len(dbmod.load_calendar_events(conn))}")
     conn.close()
 
 
